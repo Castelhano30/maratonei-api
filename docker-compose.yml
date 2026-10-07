@@ -1,0 +1,23 @@
+name: maratonei-api
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: maratonei
+      POSTGRES_PASSWORD: maratonei
+      POSTGRES_DB: maratonei
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U maratonei -d maratonei_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  db-data:
