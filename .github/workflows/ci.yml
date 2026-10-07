@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: lint, typecheck, format e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: maratonei
+          POSTGRES_PASSWORD: maratonei
+          POSTGRES_DB: maratonei_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maratonei -d maratonei_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      NODE_ENV: test
+      LOG_LEVEL: silent
+      DATABASE_URL: postgresql://maratonei:maratonei@localhost:5432/maratonei_test
+      ALLOWED_ORIGINS: http://localhost:3000,http://localhost:4000
+      PRISMA_HIDE_UPDATE_MESSAGE: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm db:generate
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm format:check
+
+      - run: pnpm build
+
+      - run: pnpm db:deploy
+
+      - run: pnpm test
