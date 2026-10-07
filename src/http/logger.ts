@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pino, type DestinationStream, type Logger } from 'pino';
-import { pinoHttp } from 'pino-http';
+import { pinoHttp, type StdSerializedResults } from 'pino-http';
 import type { Config } from '../config.js';
+
+type SerializedRequest = StdSerializedResults['req'];
 
 export const REDACT_PATHS = [
   'req.headers.cookie',
@@ -53,10 +55,15 @@ export function createHttpLogger(logger: Logger) {
       return 'info';
     },
     serializers: {
-      req: (req: { url?: string }) => {
-        if (typeof req.url === 'string') req.url = maskUrl(req.url);
-        return req;
-      },
+      // Sem `query`/`params`: carregariam os tokens em claro; a URL mascarada basta.
+      req: (req: SerializedRequest) => ({
+        id: req.id,
+        method: req.method,
+        url: maskUrl(req.url),
+        headers: req.headers,
+        remoteAddress: req.remoteAddress,
+        remotePort: req.remotePort,
+      }),
       // Só o status: os headers de resposta são ruído (e `set-cookie` já é redigido).
       res: (res: { statusCode?: number }) => ({ statusCode: res.statusCode }),
     },
