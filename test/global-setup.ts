@@ -9,9 +9,9 @@ export default function globalSetup(): void {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL não definida para os testes.');
 
-  // Os testes truncam tabelas: só rodam contra um banco cujo nome indica teste.
+  // Os testes truncam tabelas: só rodam contra um banco cujo nome termina em `_test`.
   const databaseName = new URL(databaseUrl).pathname.slice(1);
-  if (!databaseName.includes('test')) {
+  if (!/_test$/.test(databaseName)) {
     throw new Error(`Os testes só rodam num banco de teste (recebido: "${databaseName}").`);
   }
 
@@ -19,10 +19,11 @@ export default function globalSetup(): void {
   const prismaCli = require.resolve('prisma/build/index.js');
   execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
     stdio: 'pipe',
-    // O CLI prefere DIRECT_DATABASE_URL; fixamos a do teste para nunca cair no .env de dev.
+    // O CLI prefere DIRECT_DATABASE_URL; fixamos a URL já validada acima para que
+    // nenhuma DIRECT_DATABASE_URL exportada (ou do .env de dev) escape da guarda.
     env: {
       ...process.env,
-      DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL || databaseUrl,
+      DIRECT_DATABASE_URL: databaseUrl,
       PRISMA_HIDE_UPDATE_MESSAGE: '1',
     },
   });
