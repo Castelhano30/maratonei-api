@@ -59,6 +59,8 @@ jobs:
 
       - run: pnpm format:check
 
+      - run: pnpm build
+
       - run: pnpm db:deploy
 
       - run: pnpm test
