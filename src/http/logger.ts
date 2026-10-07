@@ -27,7 +27,7 @@ export function createLogger(
 }
 
 const MASK = '[Redacted]';
-const PATH_TOKEN = /(\/(?:invites|reset-password)\/)[^/?#]+/gi;
+const PATH_TOKEN = /(\/(?:invites|convite|reset-password)\/)[^/?#]+/gi;
 const QUERY_TOKEN = /([?&]token=)[^&#]*/gi;
 
 /** Mascara tokens de convite, reset e verificação na URL antes de logar. */
@@ -60,7 +60,11 @@ export function createHttpLogger(logger: Logger) {
         id: req.id,
         method: req.method,
         url: maskUrl(req.url),
-        headers: req.headers,
+        // O Referer pode trazer a URL de convite/reset de onde a requisição partiu.
+        headers:
+          typeof req.headers.referer === 'string'
+            ? { ...req.headers, referer: maskUrl(req.headers.referer) }
+            : req.headers,
         remoteAddress: req.remoteAddress,
         remotePort: req.remotePort,
       }),

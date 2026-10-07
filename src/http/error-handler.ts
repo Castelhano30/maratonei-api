@@ -68,7 +68,7 @@ interface BodyParserError extends Error {
 
 function fromBodyParserError(error: unknown): AppError | undefined {
   if (!(error instanceof Error)) return undefined;
-  const { type } = error as BodyParserError;
+  const { type, status } = error as BodyParserError;
   switch (type) {
     case 'entity.parse.failed':
       return new AppError('MALFORMED_JSON', 'O corpo da requisição não é um JSON válido.');
@@ -78,6 +78,10 @@ function fromBodyParserError(error: unknown): AppError | undefined {
     case 'encoding.unsupported':
       return new AppError('UNSUPPORTED_MEDIA_TYPE');
     default:
+      // Outros 4xx do body-parser (`request.size.invalid`, `request.aborted`...).
+      if (typeof type === 'string' && typeof status === 'number' && status >= 400 && status < 500) {
+        return new AppError('MALFORMED_JSON', 'O corpo da requisição não pôde ser lido.');
+      }
       return undefined;
   }
 }

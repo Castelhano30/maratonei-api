@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import express, { type Express } from 'express';
 import type { Logger } from 'pino';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createApp } from '../app.js';
 import { config } from '../config.js';
@@ -14,9 +16,15 @@ import { allowedOrigin } from '../../test/helpers/as-user.js';
 import { captureLogs } from '../../test/helpers/log-capture.js';
 import { AppError } from './app-error.js';
 import { ERROR_CODES, errorCodes } from './error-codes.js';
-import { constraintNameOf, errorHandler, fromPrismaError, routeNotFound } from './error-handler.js';
+import {
+  constraintNameOf,
+  errorHandler,
+  fromPrismaError,
+  routeNotFound,
+  toAppError,
+} from './error-handler.js';
 import { createHttpLogger, maskUrl } from './logger.js';
-import { PageQuery, toPage } from './pagination.js';
+import { MAX_PAGE, PageQuery, toPage } from './pagination.js';
 import { validate } from './validate.js';
 
 const origin = allowedOrigin();
@@ -98,6 +106,71 @@ describe('corpo da requisição', () => {
     expectProblem(res, 400, 'MALFORMED_JSON');
   });
 
+  it('responde 413 PAYLOAD_TOO_LARGE para JSON acima de 100 kb', async () => {
+    const res = await request(testApp())
+      .post('/api/v1/qualquer')
+      .set('Origin', origin)
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ texto: 'x'.repeat(101 * 1024) }));
+    expectProblem(res, 413, 'PAYLOAD_TOO_LARGE');
+  });
+
+  it('rejeita application/json com charset não UTF-8 com 415', async () => {
+    const res = await request(testApp())
+      .post('/api/v1/qualquer')
+      .set('Origin', origin)
+      .set('Content-Type', 'application/json; charset=latin1')
+      .send('{"a":1}');
+    expectProblem(res, 415, 'UNSUPPORTED_MEDIA_TYPE');
+  });
+
+  it('rejeita corpo chunked text/plain sem Content-Length com 415', async () => {
+    const server = testApp().listen(0, '127.0.0.1');
+    try {
+      await new Promise((resolve) => server.once('listening', resolve));
+      const { port } = server.address() as AddressInfo;
+      const { status, contentType, body } = await new Promise<{
+        status: number | undefined;
+        contentType: string | undefined;
+        body: string;
+      }>((resolve, reject) => {
+        const req = httpRequest(
+          {
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/api/v1/qualquer',
+            headers: {
+              Origin: origin,
+              'Content-Type': 'text/plain',
+              'Transfer-Encoding': 'chunked',
+            },
+          },
+          (res) => {
+            let data = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk: string) => (data += chunk));
+            res.on('end', () =>
+              resolve({
+                status: res.statusCode,
+                contentType: res.headers['content-type'],
+                body: data,
+              }),
+            );
+          },
+        );
+        req.on('error', reject);
+        req.write('oi, ');
+        req.end('tudo bem?');
+      });
+      expect(status).toBe(415);
+      expect(contentType).toMatch(/^application\/problem\+json/);
+      expect(JSON.parse(body)).toMatchObject({ code: 'UNSUPPORTED_MEDIA_TYPE' });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
   it('aceita mutação sem corpo e sem Content-Type', async () => {
     const res = await request(testApp()).delete('/api/v1/qualquer').set('Origin', origin);
     expectProblem(res, 404, 'ROUTE_NOT_FOUND');
@@ -155,12 +228,18 @@ describe('paginação', () => {
     expect(res.body).toEqual({ data: [], page: 1, pageSize: 20, total: 0 });
   });
 
+  it('aceita a última página cujo skip cabe em Int32', async () => {
+    const res = await request(app).get(`/items?page=${MAX_PAGE}&pageSize=100`);
+    expect(res.status).toBe(200);
+    expect((MAX_PAGE - 1) * 100).toBeLessThanOrEqual(2_147_483_647);
+  });
+
   it('aceita pageSize=100', async () => {
     const res = await request(app).get('/items?page=3&pageSize=100');
     expect(res.body).toMatchObject({ page: 3, pageSize: 100 });
   });
 
-  it.each(['page=0', 'pageSize=101', 'pageSize=0', 'page=abc', 'page=1.5'])(
+  it.each(['page=0', 'pageSize=101', 'pageSize=0', 'page=abc', 'page=1.5', `page=${MAX_PAGE + 1}`])(
     'rejeita %s com 400 VALIDATION_FAILED',
     async (qs) => {
       const res = await request(app).get(`/items?${qs}`);
@@ -196,6 +275,13 @@ describe('error handler', () => {
     const errorLine = lines.find((line) => line.msg === 'request failed');
     expect(errorLine).toMatchObject({ level: 50, requestId });
     expect(JSON.stringify(errorLine)).toContain('segredo interno');
+  });
+
+  it('traduz outros 4xx do body-parser em 400 MALFORMED_JSON', () => {
+    for (const type of ['request.size.invalid', 'request.aborted']) {
+      const error = Object.assign(new Error(type), { type, status: 400 });
+      expect(toAppError(error)).toMatchObject({ code: 'MALFORMED_JSON', status: 400 });
+    }
   });
 
   it('serializa AppError com detail', async () => {
@@ -312,6 +398,39 @@ describe('logs (pino-http)', () => {
     expect(urls).toContain('/api/v1/invites/[Redacted]?x=1');
     expect(urls).toContain('/api/v1/auth/verify-email?token=[Redacted]&callbackURL=/');
     expect(raw.join('\n')).not.toMatch(/tok-(convite|verificacao)/);
+  });
+
+  it('mascara tokens no header Referer', async () => {
+    const { logger, raw, lines } = captureLogs();
+    const app = createApp({ config, logger });
+
+    await request(app)
+      .get('/api/v1/health')
+      .set('Referer', 'http://localhost:3000/convite/tok-referer-789?token=tok-query-000');
+
+    const line = lines.find((l) => l.msg === 'request completed');
+    const headers = (line?.req as { headers: Record<string, string> }).headers;
+    expect(headers.referer).toBe('http://localhost:3000/convite/[Redacted]?token=[Redacted]');
+    expect(raw.join('\n')).not.toMatch(/tok-(referer|query)/);
+  });
+
+  it('loga a resposta com level 40 em 4xx e 50 em 5xx', async () => {
+    const { logger, lines } = captureLogs();
+    const app = createApp({ config, logger });
+    const responseLine = (status: number) =>
+      lines.find((l) => (l.res as { statusCode?: number } | undefined)?.statusCode === status);
+
+    await request(app).get('/api/v1/nao-existe');
+    const spy = vi.spyOn(prisma, '$queryRaw').mockRejectedValue(new Error('banco fora'));
+    try {
+      await request(app).get('/api/v1/health/ready');
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(responseLine(404)).toMatchObject({ level: 40, msg: 'request completed' });
+    // Em 5xx o pino-http usa a mensagem "request errored".
+    expect(responseLine(503)).toMatchObject({ level: 50 });
   });
 
   it('maskUrl cobre reset de senha e preserva URLs sem token', () => {

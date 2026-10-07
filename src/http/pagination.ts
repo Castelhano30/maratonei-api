@@ -2,10 +2,12 @@ import { z } from 'zod';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
+/** Mantém `(page - 1) * pageSize` dentro de Int32 (o `skip` do Prisma). */
+export const MAX_PAGE = Math.floor(2_147_483_647 / MAX_PAGE_SIZE) + 1;
 
 /** `?page=1&pageSize=20` (máximo 100). Base de toda query de coleção. */
 export const PageQuery = z.object({
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(MAX_PAGE).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 
