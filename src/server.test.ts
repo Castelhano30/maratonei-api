@@ -21,19 +21,24 @@ describe.skipIf(process.platform === 'win32')('server.ts', () => {
       child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()));
       child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString()));
 
-      const deadline = Date.now() + 20_000;
-      while (!output.includes('ouvindo')) {
-        if (Date.now() > deadline || child.exitCode !== null) throw new Error(output);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      try {
+        const deadline = Date.now() + 20_000;
+        while (!output.includes('ouvindo')) {
+          if (Date.now() > deadline || child.exitCode !== null) throw new Error(output);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        const res = await fetch(`http://127.0.0.1:${port}/api/v1/health`);
+        expect(res.status).toBe(200);
+
+        child.kill(signal);
+        const [code] = await once(child, 'exit');
+        expect(code).toBe(0);
+        expect(output).toContain('encerrado');
+      } finally {
+        // Falha antes do kill: não deixa o servidor órfão.
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }
-
-      const res = await fetch(`http://127.0.0.1:${port}/api/v1/health`);
-      expect(res.status).toBe(200);
-
-      child.kill(signal);
-      const [code] = await once(child, 'exit');
-      expect(code).toBe(0);
-      expect(output).toContain('encerrado');
     },
     30_000,
   );

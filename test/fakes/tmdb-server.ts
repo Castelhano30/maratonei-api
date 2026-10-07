@@ -62,7 +62,8 @@ export async function startFakeTmdb(): Promise<FakeTmdbServer> {
       });
       return;
     }
-    Promise.resolve(handler(request))
+    Promise.resolve()
+      .then(() => handler(request))
       .then(async (reply) => {
         if (reply.delayMs) await new Promise((resolve) => setTimeout(resolve, reply.delayMs));
         send(res, reply.status ?? 200, reply.body ?? {});
