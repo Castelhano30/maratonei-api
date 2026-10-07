@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+src/generated/
+
+.env
+.env.local
+!.env.example
+!.env.test
+
+*.log
+.DS_Store
