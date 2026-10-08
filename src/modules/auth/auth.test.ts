@@ -1,5 +1,4 @@
 import express from 'express';
-import { toNodeHandler } from 'better-auth/node';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../app.js';
@@ -11,7 +10,7 @@ import { captureLogs } from '../../../test/helpers/log-capture.js';
 import { linkIn, outbox } from '../../../test/helpers/outbox.js';
 import { createSession } from '../../../test/factories/session.js';
 import { createUser } from '../../../test/factories/user.js';
-import { createAuth } from './auth.js';
+import { createAuth, createAuthHandler } from './auth.js';
 
 const PASSWORD = 'senha-segura-123';
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -350,11 +349,70 @@ describe('origem e logs', () => {
   });
 });
 
+describe('callbackURL do link de verificação', () => {
+  it('preserva o destino informado no cadastro, absoluto na origem do web', async () => {
+    await client().post('/api/v1/auth/sign-up/email').send({
+      name: 'Maria',
+      email: 'cb@maratonei.test',
+      password: PASSWORD,
+      callbackURL: '/verificar-email?verified=1&next=%2Fconvite%2Fabc',
+    });
+
+    const link = new URL(linkIn(outbox[0]!));
+    expect(link.searchParams.get('callbackURL')).toBe(
+      `${config.WEB_ORIGIN}/verificar-email?verified=1&next=%2Fconvite%2Fabc`,
+    );
+    const res = await followLink(link.toString());
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(
+      `${config.WEB_ORIGIN}/verificar-email?verified=1&next=%2Fconvite%2Fabc`,
+    );
+  });
+
+  it('callbackURL absoluto de outra origem confiável (a da API) cai no destino padrão', async () => {
+    await client().post('/api/v1/auth/sign-up/email').send({
+      name: 'Maria',
+      email: 'cb2@maratonei.test',
+      password: PASSWORD,
+      callbackURL: 'http://localhost:4000/api/v1/health',
+    });
+
+    const link = new URL(linkIn(outbox[0]!));
+    expect(link.searchParams.get('callbackURL')).toBe(
+      `${config.WEB_ORIGIN}/verificar-email?verified=1`,
+    );
+  });
+});
+
+describe('cookie em produção', () => {
+  it('usa o prefixo __Secure- e o atributo Secure', async () => {
+    await createUser({ email: 'prod@maratonei.test', password: PASSWORD });
+    const production = createAuth({
+      config: { ...config, NODE_ENV: 'production' },
+      rateLimit: false,
+    });
+    const app = express();
+    app.all('/api/v1/auth/*splat', createAuthHandler(production));
+
+    const res = await request(app)
+      .post('/api/v1/auth/sign-in/email')
+      .set('Origin', allowedOrigin())
+      .send({ email: 'prod@maratonei.test', password: PASSWORD });
+
+    expect(res.status).toBe(200);
+    const cookie = (res.headers['set-cookie'] as unknown as string[]).join(';');
+    expect(cookie).toMatch(/__Secure-better-auth.session_token=/);
+    expect(cookie).toMatch(/Secure/);
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).not.toMatch(/Domain=/i);
+  });
+});
+
 describe('rate limit do Better Auth', () => {
   it('limita tentativas repetidas de login com 429', async () => {
     const limited = createAuth({ rateLimit: true });
     const app = express();
-    app.all('/api/v1/auth/*splat', toNodeHandler(limited));
+    app.all('/api/v1/auth/*splat', createAuthHandler(limited));
 
     const statuses: number[] = [];
     for (let i = 0; i < 6; i += 1) {

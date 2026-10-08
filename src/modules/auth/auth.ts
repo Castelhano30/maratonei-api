@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth';
+import { toNodeHandler } from 'better-auth/node';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { config as defaultConfig, type Config } from '../../config.js';
 import { prisma } from '../../lib/prisma.js';
@@ -12,6 +13,7 @@ import {
 import { uuidv7 } from './uuid7.js';
 
 export const AUTH_BASE_PATH = '/api/v1/auth';
+/** Nome do cookie fora de produção; em produção o Better Auth acrescenta o prefixo `__Secure-`. */
 export const SESSION_COOKIE_NAME = 'better-auth.session_token';
 
 const DAY_SECONDS = 24 * 60 * 60;
@@ -78,10 +80,19 @@ function withWebCallback(url: string, webOrigin: string): string {
   const link = new URL(url);
   const callback = link.searchParams.get('callbackURL');
   const target = !callback || callback === '/' ? '/verificar-email?verified=1' : callback;
-  link.searchParams.set('callbackURL', new URL(target, webOrigin).toString());
+  const resolved = new URL(target, webOrigin);
+  // `callbackURL` absoluto de outra origem confiável (ex.: a da API) nunca vira destino do link.
+  const safe =
+    resolved.origin === webOrigin ? resolved : new URL('/verificar-email?verified=1', webOrigin);
+  link.searchParams.set('callbackURL', safe.toString());
   return link.toString();
 }
 
 export type Auth = ReturnType<typeof createAuth>;
 
 export const auth: Auth = createAuth();
+
+/** Handler Node do Better Auth: `app.ts` monta só isto, sem importar o pacote (AD-6). */
+export function createAuthHandler(instance: Auth = auth) {
+  return toNodeHandler(instance);
+}

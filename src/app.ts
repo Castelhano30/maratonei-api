@@ -1,5 +1,4 @@
 import express, { type Express } from 'express';
-import { toNodeHandler } from 'better-auth/node';
 import helmet from 'helmet';
 import type { Logger } from 'pino';
 import { config as defaultConfig, type Config } from './config.js';
@@ -7,7 +6,7 @@ import { errorHandler, routeNotFound } from './http/error-handler.js';
 import { createHttpLogger, createLogger } from './http/logger.js';
 import { originCheck } from './http/origin-check.js';
 import { requireJson } from './http/require-json.js';
-import { auth, AUTH_BASE_PATH, meRouter } from './modules/auth/index.js';
+import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
 import { healthRouter } from './modules/health/index.js';
 import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/openapi.routes.js';
 
@@ -35,7 +34,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(originCheck(config.ALLOWED_ORIGINS));
 
   // Better Auth: lê o corpo por conta própria, por isso entra antes do parser JSON (AD-6).
-  app.all(`${AUTH_BASE_PATH}/*splat`, toNodeHandler(auth));
+  app.all(`${AUTH_BASE_PATH}/*splat`, createAuthHandler());
 
   app.use(requireJson);
   app.use(express.json({ limit: '100kb' }));
