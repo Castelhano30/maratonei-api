@@ -203,7 +203,9 @@ describe('verificação de e-mail', () => {
     const res = await followLink(linkIn(outbox[0]!));
 
     expect(res.status).toBe(302);
-    expect(new URL(res.headers.location!).origin).toBe(config.WEB_ORIGIN);
+    const location = new URL(res.headers.location!);
+    expect(location.origin).toBe(config.WEB_ORIGIN);
+    expect(location.pathname + location.search).toBe('/verificar-email?verified=1');
     expect(res.headers['set-cookie']).toBeUndefined();
     const user = await prisma.user.findUniqueOrThrow({
       where: { email: 'verifica@maratonei.test' },

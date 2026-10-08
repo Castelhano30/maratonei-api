@@ -72,12 +72,12 @@ export function createAuth(options: AuthOptions = {}) {
 /**
  * O link de verificação passa pela API e redireciona ao web. O Better Auth usa
  * `callbackURL=/` por padrão (relativo, que resolveria na origem da API): aqui o
- * destino vira sempre absoluto na origem do web, ou a tela de login quando é só `/`.
+ * destino vira sempre absoluto na origem do web, ou a tela de verificação do web quando é só `/`.
  */
 function withWebCallback(url: string, webOrigin: string): string {
   const link = new URL(url);
   const callback = link.searchParams.get('callbackURL');
-  const target = !callback || callback === '/' ? '/login?verified=1' : callback;
+  const target = !callback || callback === '/' ? '/verificar-email?verified=1' : callback;
   link.searchParams.set('callbackURL', new URL(target, webOrigin).toString());
   return link.toString();
 }
