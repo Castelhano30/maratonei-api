@@ -28,9 +28,9 @@ export function createLogger(
 
 const MASK = '[Redacted]';
 const PATH_TOKEN = /(\/(?:invites|convite|reset-password)\/)[^/?#]+/gi;
-const QUERY_TOKEN = /([?&]token=)[^&#]*/gi;
+const QUERY_TOKEN = /([?&](?:token|code|state)=)[^&#]*/gi;
 
-/** Mascara tokens de convite, reset e verificação na URL antes de logar. */
+/** Mascara tokens de convite, reset e verificação e `code`/`state` do OAuth na URL antes de logar. */
 export function maskUrl(url: string): string {
   return url.replace(PATH_TOKEN, `$1${MASK}`).replace(QUERY_TOKEN, `$1${MASK}`);
 }

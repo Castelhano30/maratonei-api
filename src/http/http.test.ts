@@ -440,6 +440,15 @@ describe('logs (pino-http)', () => {
     expect(maskUrl('/api/v1/lists?page=2')).toBe('/api/v1/lists?page=2');
   });
 
+  it('maskUrl mascara token, code e state do callback OAuth e da verificação', () => {
+    expect(maskUrl('/api/v1/auth/callback/google?code=4%2F0abc&state=xyz&scope=email')).toBe(
+      '/api/v1/auth/callback/google?code=[Redacted]&state=[Redacted]&scope=email',
+    );
+    expect(maskUrl('/api/v1/auth/verify-email?token=jwt.aqui&callbackURL=/x')).toBe(
+      '/api/v1/auth/verify-email?token=[Redacted]&callbackURL=/x',
+    );
+  });
+
   it('devolve X-Request-Id único por requisição', async () => {
     const a = await request(testApp()).get('/api/v1/health');
     const b = await request(testApp()).get('/api/v1/health');
