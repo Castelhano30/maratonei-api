@@ -84,6 +84,36 @@ describe('GET /api/v1/openapi.json (CAP-1)', () => {
   });
 });
 
+describe('superfície de auth no OpenAPI', () => {
+  it('documenta getMe (200 MeResponse, 401 Problem) e nenhuma rota de auth', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Record<string, unknown>>>;
+
+    expect(paths['/api/v1/me']?.get).toMatchObject({
+      operationId: 'getMe',
+      responses: {
+        '200': {
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MeResponse' } } },
+        },
+        '401': {
+          content: {
+            'application/problem+json': { schema: { $ref: '#/components/schemas/Problem' } },
+          },
+        },
+      },
+    });
+    const schemas = (document.components as { schemas: Record<string, { properties: object }> })
+      .schemas;
+    expect(Object.keys(schemas.MeResponse?.properties ?? {}).sort()).toEqual([
+      'email',
+      'id',
+      'image',
+      'name',
+    ]);
+    expect(Object.keys(paths).filter((path) => path.startsWith('/api/v1/auth'))).toEqual([]);
+  });
+});
+
 describe('GET /docs (Swagger UI)', () => {
   it('responde 200 com o HTML do Swagger UI', async () => {
     const res = await request(testApp()).get('/docs');
