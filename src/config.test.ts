@@ -116,6 +116,14 @@ describe('parseConfig (AD-16)', () => {
     expect(JSON.stringify(error.issues)).not.toContain('curto-demais');
   });
 
+  it('rejeita o segredo de exemplo do .env.example', () => {
+    const error = configErrorOf({
+      ...validEnv,
+      BETTER_AUTH_SECRET: `troque-por-${'x'.repeat(40)}`,
+    });
+    expect(error.issues.map((i) => i.variable)).toEqual(['BETTER_AUTH_SECRET']);
+  });
+
   it('rejeita EMAIL_TRANSPORT desconhecido', () => {
     expect(
       configErrorOf({ ...validEnv, EMAIL_TRANSPORT: 'resend' }).issues.map((i) => i.variable),

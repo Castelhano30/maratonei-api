@@ -81,7 +81,11 @@ export const EnvSchema = z.object({
   ALLOWED_ORIGINS: allowedOrigins,
   // Origem pública do web: base dos links de e-mail e `baseURL` do Better Auth.
   WEB_ORIGIN: webOrigin,
-  BETTER_AUTH_SECRET: z.string().trim().min(32, 'mínimo de 32 caracteres'),
+  BETTER_AUTH_SECRET: z
+    .string()
+    .trim()
+    .min(32, 'mínimo de 32 caracteres')
+    .refine((value) => !value.startsWith('troque-por-'), 'troque o segredo de exemplo'),
   EMAIL_TRANSPORT: z.enum(['console']).default('console'),
 });
 
