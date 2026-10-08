@@ -54,3 +54,24 @@ describe('createEmailSender', () => {
     expect(await sender.send(message('b@x.test'))).toBe('sent');
   });
 });
+
+describe('createEmailSender com transporte que falha', () => {
+  it('não gasta a janela do destinatário nem o teto do dia', async () => {
+    let fail = true;
+    const sent: EmailMessage[] = [];
+    const sender = createEmailSender({
+      transport: (m) => {
+        if (fail) throw new Error('smtp fora');
+        sent.push(m);
+      },
+      throttleMs: 60_000,
+      dailyLimit: 1,
+      now: () => 1_000,
+    });
+
+    await expect(sender.send(message('a@x.test'))).rejects.toThrow('smtp fora');
+    fail = false;
+    expect(await sender.send(message('a@x.test'))).toBe('sent');
+    expect(sent).toHaveLength(1);
+  });
+});

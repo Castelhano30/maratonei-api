@@ -60,7 +60,14 @@ export function createEmailSender(options: EmailSenderOptions) {
           if (current - at >= throttleMs) lastSentAt.delete(recipient);
         }
       }
-      await transport(message);
+      try {
+        await transport(message);
+      } catch (error) {
+        // Falha de envio não gasta a janela do destinatário nem o teto do dia.
+        if (lastSentAt.get(key) === current) lastSentAt.delete(key);
+        sentToday -= 1;
+        throw error;
+      }
       return 'sent';
     },
     /** Troca o transporte e os limites (usado pelos testes). */
