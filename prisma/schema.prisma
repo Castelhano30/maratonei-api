@@ -14,8 +14,8 @@ datasource db {
 
 // ---------------------------------------------------------------------------
 // Identidade (módulo `auth`, AD-6/AD-8). Escrito à mão seguindo o schema do
-// Better Auth 1.7; a Fase 1 confere com a CLI do Better Auth e corrige por
-// migration aditiva.
+// Better Auth 1.7; conferido com a CLI na Fase 1a (campos idênticos), com o unique
+// `(provider_id, account_id)` acrescentado por migration aditiva.
 // ---------------------------------------------------------------------------
 
 model User {
@@ -65,6 +65,7 @@ model Account {
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([providerId, accountId])
   @@index([userId])
   @@map("account")
 }
