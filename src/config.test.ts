@@ -7,6 +7,8 @@ import { ConfigError, normalizeOrigin, parseConfig } from './config.js';
 const validEnv = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/maratonei',
   ALLOWED_ORIGINS: 'http://localhost:3000',
+  WEB_ORIGIN: 'http://localhost:3000',
+  BETTER_AUTH_SECRET: 'x'.repeat(32),
 };
 
 function configErrorOf(env: NodeJS.ProcessEnv): ConfigError {
@@ -28,6 +30,9 @@ describe('parseConfig (AD-16)', () => {
       LOG_LEVEL: 'info',
       DATABASE_URL: validEnv.DATABASE_URL,
       ALLOWED_ORIGINS: ['http://localhost:3000'],
+      WEB_ORIGIN: 'http://localhost:3000',
+      BETTER_AUTH_SECRET: validEnv.BETTER_AUTH_SECRET,
+      EMAIL_TRANSPORT: 'console',
     });
   });
 
@@ -50,7 +55,8 @@ describe('parseConfig (AD-16)', () => {
   });
 
   it('falha sem DATABASE_URL, listando a variável', () => {
-    const error = configErrorOf({ ALLOWED_ORIGINS: validEnv.ALLOWED_ORIGINS });
+    const { DATABASE_URL: _omitido, ...semBanco } = validEnv;
+    const error = configErrorOf(semBanco);
     expect(error.issues.map((i) => i.variable)).toEqual(['DATABASE_URL']);
     expect(error.message).toContain('DATABASE_URL');
   });
@@ -83,9 +89,37 @@ describe('parseConfig (AD-16)', () => {
       NODE_ENV: 'staging',
     });
     expect(new Set(error.issues.map((i) => i.variable))).toEqual(
-      new Set(['DATABASE_URL', 'ALLOWED_ORIGINS', 'PORT', 'NODE_ENV']),
+      new Set([
+        'DATABASE_URL',
+        'ALLOWED_ORIGINS',
+        'PORT',
+        'NODE_ENV',
+        'WEB_ORIGIN',
+        'BETTER_AUTH_SECRET',
+      ]),
     );
     expect(JSON.stringify(error.issues)).not.toContain('segredo');
+  });
+
+  it('exige WEB_ORIGIN como origem e BETTER_AUTH_SECRET com 32+ caracteres, sem imprimir valores', () => {
+    const { WEB_ORIGIN: _w, BETTER_AUTH_SECRET: _b, ...base } = validEnv;
+    expect(configErrorOf(base).issues.map((i) => i.variable)).toEqual([
+      'WEB_ORIGIN',
+      'BETTER_AUTH_SECRET',
+    ]);
+    const error = configErrorOf({
+      ...base,
+      WEB_ORIGIN: 'http://localhost:3000/app',
+      BETTER_AUTH_SECRET: 'curto-demais',
+    });
+    expect(error.issues.map((i) => i.variable)).toEqual(['WEB_ORIGIN', 'BETTER_AUTH_SECRET']);
+    expect(JSON.stringify(error.issues)).not.toContain('curto-demais');
+  });
+
+  it('rejeita EMAIL_TRANSPORT desconhecido', () => {
+    expect(
+      configErrorOf({ ...validEnv, EMAIL_TRANSPORT: 'resend' }).issues.map((i) => i.variable),
+    ).toEqual(['EMAIL_TRANSPORT']);
   });
 
   it('normalizeOrigin devolve só scheme://host[:porta]', () => {

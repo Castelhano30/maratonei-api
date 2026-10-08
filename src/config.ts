@@ -56,6 +56,22 @@ const allowedOrigins = z
     return [...new Set(origins)];
   });
 
+const webOrigin = z
+  .string()
+  .trim()
+  .min(1, 'obrigatória')
+  .transform((raw, ctx) => {
+    const origin = normalizeOrigin(raw);
+    if (!origin) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'deve ser uma origem http(s)://host[:porta], sem path',
+      });
+      return z.NEVER;
+    }
+    return origin;
+  });
+
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
@@ -63,6 +79,10 @@ export const EnvSchema = z.object({
   DATABASE_URL: postgresUrl,
   DIRECT_DATABASE_URL: postgresUrl.optional(),
   ALLOWED_ORIGINS: allowedOrigins,
+  // Origem pública do web: base dos links de e-mail e `baseURL` do Better Auth.
+  WEB_ORIGIN: webOrigin,
+  BETTER_AUTH_SECRET: z.string().trim().min(32, 'mínimo de 32 caracteres'),
+  EMAIL_TRANSPORT: z.enum(['console']).default('console'),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
