@@ -9,6 +9,7 @@ import { allowedOrigin, asUser, sessionCookie } from '../../../test/helpers/as-u
 import { captureLogs } from '../../../test/helpers/log-capture.js';
 import { createSession } from '../../../test/factories/session.js';
 import { createUser } from '../../../test/factories/user.js';
+import { createInvite, createList, createMembership } from '../../../test/factories/list.js';
 import { createAuth, createAuthHandler, revokeUnprovenAccess } from './auth.js';
 
 const PASSWORD = 'senha-segura-123';
@@ -373,6 +374,39 @@ describe('exclusão de conta (deleteUser)', () => {
     // Outro usuário não é tocado.
     expect(await prisma.user.count({ where: { id: outra.id } })).toBe(1);
     expect(await prisma.session.count({ where: { userId: outra.id } })).toBe(1);
+  });
+
+  it('apaga as listas de que é dono (somem para os outros membros) e só o vínculo nas demais', async () => {
+    const user = await createUser({ password: PASSWORD });
+    const agent = await asUser(user);
+    const other = await createUser();
+    const otherAgent = await asUser(other);
+
+    const owned = await createList({ owner: user });
+    await createMembership(owned, { user: other });
+    await createInvite(owned, { createdById: user.id });
+    const shared = await createList({ owner: other });
+    await createMembership(shared, { user });
+    await createMembership(shared, { user: await createUser(), role: 'EDITOR' });
+    await createInvite(shared, { createdById: user.id });
+
+    expect((await otherAgent.get(`/api/v1/lists/${owned.id}`)).status).toBe(200);
+
+    const res = await agent.post('/api/v1/auth/delete-user').send({});
+
+    expect(res.status).toBe(200);
+    // A lista do usuário some para o outro membro, com membros e convite.
+    expect((await otherAgent.get(`/api/v1/lists/${owned.id}`)).status).toBe(404);
+    expect(await prisma.list.count({ where: { id: owned.id } })).toBe(0);
+    expect(await prisma.listMember.count({ where: { listId: owned.id } })).toBe(0);
+    expect(await prisma.invite.count({ where: { listId: owned.id } })).toBe(0);
+    // Na lista alheia só o vínculo dele some; o convite fica, sem autor.
+    expect(await prisma.list.count({ where: { id: shared.id } })).toBe(1);
+    expect(await prisma.listMember.count({ where: { listId: shared.id } })).toBe(2);
+    expect(await prisma.listMember.count({ where: { userId: user.id } })).toBe(0);
+    const invite = await prisma.invite.findFirstOrThrow({ where: { listId: shared.id } });
+    expect(invite.createdById).toBeNull();
+    expect((await otherAgent.get(`/api/v1/lists/${shared.id}`)).status).toBe(200);
   });
 
   it('sessão antiga sem senha: 400 SESSION_EXPIRED e nada é apagado', async () => {

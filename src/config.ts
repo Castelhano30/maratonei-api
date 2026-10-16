@@ -90,6 +90,8 @@ export const EnvSchema = z
       .min(32, 'mínimo de 32 caracteres')
       .refine((value) => !value.startsWith('troque-por-'), 'troque o segredo de exemplo'),
     EMAIL_TRANSPORT: z.enum(['console']).default('console'),
+    // Teto técnico de membros por lista (aplicado só em `lists.addMember`).
+    MAX_LIST_MEMBERS: z.coerce.number().int().min(1).default(100),
     // Login com Google (OAuth). Opcional: sem as duas variáveis o provedor fica desligado.
     GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),

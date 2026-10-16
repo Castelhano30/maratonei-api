@@ -19,15 +19,18 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String    @id @default(uuid(7)) @db.Uuid
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false) @map("email_verified")
-  image         String?
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  sessions      Session[]
-  accounts      Account[]
+  id             String       @id @default(uuid(7)) @db.Uuid
+  name           String
+  email          String       @unique
+  emailVerified  Boolean      @default(false) @map("email_verified")
+  image          String?
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions       Session[]
+  accounts       Account[]
+  ownedLists     List[]
+  memberships    ListMember[]
+  invitesCreated Invite[]
 
   @@map("user")
 }
@@ -81,4 +84,63 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// Listas, membros e convites (módulos `lists` e `invites`, AD-7/AD-9).
+// Índices únicos parciais (um OWNER por lista; um convite ativo por lista)
+// vivem só na migration: o Prisma não os expressa.
+// ---------------------------------------------------------------------------
+
+enum ListRole {
+  OWNER
+  EDITOR
+  MEMBER
+
+  @@map("list_role")
+}
+
+model List {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  name        String
+  description String?
+  // Imutável após a criação (sem transferência de posse no MVP).
+  ownerId     String       @map("owner_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members     ListMember[]
+  invites     Invite[]
+
+  @@index([ownerId])
+  @@map("list")
+}
+
+model ListMember {
+  id       String   @id @default(uuid(7)) @db.Uuid
+  listId   String   @map("list_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  role     ListRole @default(MEMBER)
+  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
+  list     List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, userId])
+  @@index([userId])
+  @@map("list_member")
+}
+
+model Invite {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  listId      String    @map("list_id") @db.Uuid
+  // 32 bytes aleatórios em base64url; a capacidade de entrar na lista.
+  token       String    @unique
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+  list        List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([listId])
+  @@map("invite")
 }

@@ -8,6 +8,9 @@ import { originCheck } from './http/origin-check.js';
 import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
 import { healthRouter } from './modules/health/index.js';
+import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
+import { listsRouter } from './modules/lists/index.js';
+import { membersRouter } from './modules/members/index.js';
 import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/openapi.routes.js';
 
 export interface AppOptions {
@@ -44,6 +47,10 @@ export function createApp(options: AppOptions = {}): Express {
   const api = express.Router();
   api.use('/health', healthRouter);
   api.use('/me', meRouter);
+  api.use('/lists', listsRouter);
+  api.use('/lists/:listId/members', membersRouter);
+  api.use('/lists/:listId/invite', listInviteRouter);
+  api.use('/invites', invitesRouter);
   api.use(createOpenApiRouter());
   app.use(API_PREFIX, api);
 

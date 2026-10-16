@@ -114,6 +114,67 @@ describe('superfície de auth no OpenAPI', () => {
   });
 });
 
+describe('listas, membros e convites no OpenAPI', () => {
+  const EXPECTED: Record<string, string> = {
+    'get /api/v1/lists': 'listLists',
+    'post /api/v1/lists': 'createList',
+    'get /api/v1/lists/{listId}': 'getList',
+    'patch /api/v1/lists/{listId}': 'updateList',
+    'delete /api/v1/lists/{listId}': 'deleteList',
+    'get /api/v1/lists/{listId}/members': 'listMembers',
+    'delete /api/v1/lists/{listId}/members/me': 'leaveList',
+    'delete /api/v1/lists/{listId}/members/{memberId}': 'removeMember',
+    'put /api/v1/lists/{listId}/members/{memberId}/role': 'setMemberRole',
+    'get /api/v1/lists/{listId}/invite': 'getListInvite',
+    'post /api/v1/lists/{listId}/invite': 'rotateListInvite',
+    'delete /api/v1/lists/{listId}/invite': 'revokeListInvite',
+    'get /api/v1/invites/{token}': 'getInvite',
+    'post /api/v1/invites/{token}/accept': 'acceptInvite',
+  };
+
+  it('documenta todas as rotas da Fase 2a com operationId e erros problem+json', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+
+    for (const [key, operationId] of Object.entries(EXPECTED)) {
+      const [method, path] = key.split(' ') as [string, string];
+      const operation = paths[path]?.[method] as
+        | (Operation & { responses: Record<string, { content?: Record<string, unknown> }> })
+        | undefined;
+      expect(operation?.operationId, key).toBe(operationId);
+      expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
+    }
+  });
+
+  it('publica ListSummary, Member e Invite; listas e membros respondem Page<T>', async () => {
+    const document = await fetchDocument();
+    const schemas = (document.components as { schemas: Record<string, Record<string, unknown>> })
+      .schemas;
+
+    expect(schemas.ListSummary).toMatchObject({
+      required: expect.arrayContaining([
+        'id',
+        'name',
+        'description',
+        'role',
+        'memberCount',
+        'itemCount',
+        'createdAt',
+        'updatedAt',
+      ]),
+    });
+    expect(schemas.Member).toMatchObject({
+      required: expect.arrayContaining(['id', 'user', 'role', 'joinedAt']),
+    });
+    expect(schemas.ListSummaryPage).toMatchObject({
+      required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+    });
+    expect(schemas.MemberPage).toMatchObject({
+      required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+    });
+  });
+});
+
 describe('GET /docs (Swagger UI)', () => {
   it('responde 200 com o HTML do Swagger UI', async () => {
     const res = await request(testApp()).get('/docs');

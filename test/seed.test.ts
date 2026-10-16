@@ -39,6 +39,13 @@ describe('prisma/seed.ts', () => {
     expect(account).toMatchObject({ providerId: 'credential', accountId: user?.id });
     expect(account?.password).toMatch(/^\$argon2id\$/);
     expect(await argon2.verify(account?.password ?? '', 'outra-senha')).toBe(true);
+
+    // Uma lista de exemplo, com o usuário como dono, sem duplicar na segunda execução.
+    const lists = await prisma.list.findMany({ include: { members: true } });
+    expect(lists).toHaveLength(1);
+    expect(lists[0]).toMatchObject({ name: 'Maratona de exemplo', ownerId: user?.id });
+    expect(lists[0]?.members).toHaveLength(1);
+    expect(lists[0]?.members[0]).toMatchObject({ userId: user?.id, role: 'OWNER' });
   });
 
   it('recusa rodar com NODE_ENV=production', async () => {

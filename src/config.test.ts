@@ -33,6 +33,7 @@ describe('parseConfig (AD-16)', () => {
       WEB_ORIGIN: 'http://localhost:3000',
       BETTER_AUTH_SECRET: validEnv.BETTER_AUTH_SECRET,
       EMAIL_TRANSPORT: 'console',
+      MAX_LIST_MEMBERS: 100,
     });
   });
 

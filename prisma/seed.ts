@@ -11,6 +11,8 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 
 const SEED_E2E_EMAIL = 'e2e@maratonei.local';
 const SEED_E2E_NAME = 'Usuário E2E';
+const SEED_LIST_NAME = 'Maratona de exemplo';
+const SEED_LIST_DESCRIPTION = 'Lista de exemplo criada pelo seed de desenvolvimento.';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -57,6 +59,22 @@ async function main(): Promise<void> {
         update: { name: SEED_E2E_NAME, emailVerified: true },
       });
 
+      // Lista de exemplo do usuário E2E (idempotente: uma só, identificada por dono e nome).
+      const existingList = await tx.list.findFirst({
+        where: { ownerId: user.id, name: SEED_LIST_NAME },
+        select: { id: true },
+      });
+      if (!existingList) {
+        await tx.list.create({
+          data: {
+            name: SEED_LIST_NAME,
+            description: SEED_LIST_DESCRIPTION,
+            ownerId: user.id,
+            members: { create: { userId: user.id, role: 'OWNER' } },
+          },
+        });
+      }
+
       const credential = await tx.account.findFirst({
         where: { userId: user.id, providerId: 'credential' },
       });
@@ -77,7 +95,7 @@ async function main(): Promise<void> {
       }
     });
 
-    console.log(`Seed concluído: usuário ${SEED_E2E_EMAIL} verificado.`);
+    console.log(`Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo.`);
   } finally {
     await prisma.$disconnect();
   }
