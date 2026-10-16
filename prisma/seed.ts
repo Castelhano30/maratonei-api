@@ -1,7 +1,8 @@
 /**
  * Seed idempotente para dev e E2E: cria (ou atualiza) o usuário verificado usado
  * pelo E2E do web, com uma conta `credential` cuja senha é um hash argon2id.
- * Recusa rodar em produção.
+ * Recusa rodar com NODE_ENV=production e contra banco que não seja local, a menos que
+ * `SEED_ALLOW_REMOTE=1` (opt-in explícito).
  */
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -12,6 +13,22 @@ const SEED_E2E_EMAIL = 'e2e@maratonei.local';
 const SEED_E2E_NAME = 'Usuário E2E';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+function databaseHost(connectionString: string): string {
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    throw new Error('DATABASE_URL inválida.');
+  }
+  // `?host=`/`?hostaddr=` trocam o host real da conexão: não há como confiar no hostname.
+  if (url.searchParams.has('host') || url.searchParams.has('hostaddr')) {
+    throw new Error('O seed recusa DATABASE_URL com "host" ou "hostaddr" na query.');
+  }
+  return url.hostname.toLowerCase();
+}
+
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('O seed não roda com NODE_ENV=production.');
@@ -19,6 +36,13 @@ async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error('DATABASE_URL não definida.');
+  }
+
+  const host = databaseHost(connectionString);
+  if (!LOCAL_HOSTS.has(host) && process.env.SEED_ALLOW_REMOTE !== '1') {
+    throw new Error(
+      `O seed recusa o banco "${host}" (não é local). Para forçar, defina SEED_ALLOW_REMOTE=1.`,
+    );
   }
 
   const password = process.env.SEED_E2E_PASSWORD || DEFAULT_SEED_E2E_PASSWORD;

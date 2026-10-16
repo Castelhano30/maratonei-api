@@ -47,4 +47,33 @@ describe('prisma/seed.ts', () => {
     expect(result.output).toContain('production');
     expect(await prisma.user.count()).toBe(0);
   });
+
+  it('recusa banco que não é local sem SEED_ALLOW_REMOTE=1', async () => {
+    const result = await runSeed({
+      DATABASE_URL: 'postgresql://u:p@ep-exemplo.neon.tech:5432/maratonei',
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('ep-exemplo.neon.tech');
+    expect(result.output).toContain('SEED_ALLOW_REMOTE');
+    expect(await prisma.user.count()).toBe(0);
+  });
+
+  it.each(['host', 'hostaddr'])('recusa ?%s= na connection string', async (param) => {
+    const result = await runSeed({
+      DATABASE_URL: `postgresql://u:p@localhost:5432/maratonei?${param}=ep-exemplo.neon.tech`,
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(param);
+    expect(await prisma.user.count()).toBe(0);
+  });
+
+  it('com SEED_ALLOW_REMOTE=1 a guarda de host é liberada', async () => {
+    // O host remoto não existe: o seed passa da guarda e falha só ao conectar.
+    const result = await runSeed({
+      DATABASE_URL: 'postgresql://u:p@host-inexistente.invalid:5432/maratonei',
+      SEED_ALLOW_REMOTE: '1',
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).not.toContain('SEED_ALLOW_REMOTE');
+  });
 });
