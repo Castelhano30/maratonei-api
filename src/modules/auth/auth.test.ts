@@ -3,6 +3,7 @@ import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../app.js';
 import { config } from '../../config.js';
+import { emailSender } from '../../lib/email.js';
 import { prisma } from '../../lib/prisma.js';
 import { testApp } from '../../../test/helpers/app.js';
 import { allowedOrigin, asUser, sessionCookie } from '../../../test/helpers/as-user.js';
@@ -381,6 +382,204 @@ describe('callbackURL do link de verificação', () => {
     expect(link.searchParams.get('callbackURL')).toBe(
       `${config.WEB_ORIGIN}/verificar-email?verified=1`,
     );
+  });
+});
+
+describe('reset de senha', () => {
+  const NEW_PASSWORD = 'senha-nova-456';
+
+  function requestReset(email: string, extra: Record<string, string> = {}, agent = client()) {
+    return agent.post('/api/v1/auth/request-password-reset').send({ email, ...extra });
+  }
+
+  function resetWith(token: string, newPassword = NEW_PASSWORD, agent = client()) {
+    return agent.post('/api/v1/auth/reset-password').send({ token, newPassword });
+  }
+
+  function tokenOf(link: URL) {
+    return decodeURIComponent(link.pathname.split('/').at(-1)!);
+  }
+
+  /** Pede o reset de uma conta verificada e devolve o link e o token do e-mail. */
+  async function requestedLink(email: string) {
+    await requestReset(email);
+    const link = new URL(linkIn(outbox.at(-1)!));
+    return { link, token: tokenOf(link) };
+  }
+
+  it('conta existente: 200 neutro e e-mail com link na origem do web, token de 1 h', async () => {
+    await createUser({ email: 'esqueci@maratonei.test', password: PASSWORD });
+
+    const res = await requestReset('esqueci@maratonei.test');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]?.to).toBe('esqueci@maratonei.test');
+    const link = new URL(linkIn(outbox[0]!));
+    expect(link.origin).toBe(config.WEB_ORIGIN);
+    expect(link.pathname).toMatch(/^\/api\/v1\/auth\/reset-password\/[^/]+$/);
+    expect(link.searchParams.get('callbackURL')).toBe(`${config.WEB_ORIGIN}/redefinir-senha`);
+
+    const verification = await prisma.verification.findFirstOrThrow({
+      where: { identifier: { startsWith: 'reset-password:' } },
+    });
+    const minutes = (verification.expiresAt.getTime() - Date.now()) / 60_000;
+    expect(minutes).toBeGreaterThan(59);
+    expect(minutes).toBeLessThanOrEqual(60);
+  });
+
+  it('conta inexistente: mesma resposta 200 e nada é enviado', async () => {
+    await createUser({ email: 'existe@maratonei.test', password: PASSWORD });
+
+    const existente = await requestReset('existe@maratonei.test');
+    outbox.length = 0;
+    const inexistente = await requestReset('ninguem@maratonei.test');
+
+    expect(inexistente.status).toBe(existente.status);
+    expect(inexistente.body).toEqual(existente.body);
+    expect(inexistente.headers['set-cookie']).toBeUndefined();
+    expect(outbox).toHaveLength(0);
+  });
+
+  it('pedido repetido no throttle: mesma resposta 200 e sem segundo e-mail', async () => {
+    await createUser({ email: 'repete@maratonei.test', password: PASSWORD });
+    emailSender.configure({ throttleMs: 60_000 });
+
+    const primeiro = await requestReset('repete@maratonei.test');
+    const segundo = await requestReset('repete@maratonei.test');
+
+    expect(segundo.status).toBe(200);
+    expect(segundo.body).toEqual(primeiro.body);
+    expect(outbox).toHaveLength(1);
+  });
+
+  it('link válido: 302 para /redefinir-senha?token= no web', async () => {
+    await createUser({ email: 'valido@maratonei.test', password: PASSWORD });
+    const { link, token } = await requestedLink('valido@maratonei.test');
+
+    const res = await followLink(link.toString());
+
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.location!);
+    expect(location.origin).toBe(config.WEB_ORIGIN);
+    expect(location.pathname).toBe('/redefinir-senha');
+    expect(location.searchParams.get('token')).toBe(token);
+    expect(location.searchParams.get('error')).toBeNull();
+  });
+
+  it('callbackURL de outra origem cai no padrão /redefinir-senha', async () => {
+    await createUser({ email: 'origem@maratonei.test', password: PASSWORD });
+
+    await requestReset('origem@maratonei.test', {
+      redirectTo: 'http://localhost:4000/api/v1/health',
+    });
+
+    const link = new URL(linkIn(outbox[0]!));
+    expect(link.searchParams.get('callbackURL')).toBe(`${config.WEB_ORIGIN}/redefinir-senha`);
+  });
+
+  it('link inexistente ou vencido: 302 para /redefinir-senha?error=INVALID_TOKEN', async () => {
+    await createUser({ email: 'vence@maratonei.test', password: PASSWORD });
+    const { link } = await requestedLink('vence@maratonei.test');
+
+    const inexistente = new URL(link.toString());
+    inexistente.pathname = '/api/v1/auth/reset-password/token-que-nao-existe';
+    const resInexistente = await followLink(inexistente.toString());
+    expect(resInexistente.status).toBe(302);
+    const erro = new URL(resInexistente.headers.location!);
+    expect(erro.origin).toBe(config.WEB_ORIGIN);
+    expect(erro.pathname).toBe('/redefinir-senha');
+    expect(erro.searchParams.get('error')).toBe('INVALID_TOKEN');
+    expect(erro.searchParams.get('token')).toBeNull();
+
+    await prisma.verification.updateMany({
+      where: { identifier: { startsWith: 'reset-password:' } },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+    const vencido = await followLink(link.toString());
+    expect(vencido.status).toBe(302);
+    expect(new URL(vencido.headers.location!).searchParams.get('error')).toBe('INVALID_TOKEN');
+  });
+
+  it('redefinição: troca a senha, revoga todas as sessões, não emite cookie e não abre sessão', async () => {
+    await registerVerified('troca@maratonei.test');
+    const antigo = client();
+    const outro = client();
+    await signIn('troca@maratonei.test', PASSWORD, antigo);
+    await signIn('troca@maratonei.test', PASSWORD, outro);
+    expect((await antigo.get('/api/v1/me')).status).toBe(200);
+    expect(await prisma.session.count()).toBe(2);
+    const { token } = await requestedLink('troca@maratonei.test');
+
+    const res = await resetWith(token);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(await prisma.session.count()).toBe(0);
+    expect((await antigo.get('/api/v1/me')).status).toBe(401);
+    expect((await outro.get('/api/v1/me')).status).toBe(401);
+    expect((await signIn('troca@maratonei.test', PASSWORD)).status).toBe(401);
+    const novo = client();
+    expect((await signIn('troca@maratonei.test', NEW_PASSWORD, novo)).status).toBe(200);
+    expect((await novo.get('/api/v1/me')).status).toBe(200);
+    const account = await prisma.account.findFirstOrThrow({
+      where: { user: { email: 'troca@maratonei.test' } },
+    });
+    expect(account.password).toMatch(/^\$argon2id\$/);
+  });
+
+  it('token reutilizado: 400 INVALID_TOKEN', async () => {
+    await createUser({ email: 'usado@maratonei.test', password: PASSWORD });
+    const { token } = await requestedLink('usado@maratonei.test');
+    expect((await resetWith(token)).status).toBe(200);
+
+    const again = await resetWith(token, 'outra-senha-789');
+
+    expect(again.status).toBe(400);
+    expect(again.body).toMatchObject({ code: 'INVALID_TOKEN' });
+    expect((await signIn('usado@maratonei.test', NEW_PASSWORD)).status).toBe(200);
+  });
+
+  it.each([
+    ['7 caracteres', 'a'.repeat(7)],
+    ['129 caracteres', 'a'.repeat(129)],
+  ])('senha com %s: 400 e o token segue válido', async (_nome, senha) => {
+    await createUser({ email: 'politica@maratonei.test', password: PASSWORD });
+    const { token } = await requestedLink('politica@maratonei.test');
+
+    const res = await resetWith(token, senha);
+
+    expect(res.status).toBe(400);
+    expect((await signIn('politica@maratonei.test', PASSWORD)).status).toBe(200);
+    expect((await resetWith(token)).status).toBe(200);
+  });
+
+  it('aceita senha de 8 e de 128 caracteres', async () => {
+    await createUser({ email: 'limites@maratonei.test', password: PASSWORD });
+    const oito = await requestedLink('limites@maratonei.test');
+    expect((await resetWith(oito.token, 'a'.repeat(8))).status).toBe(200);
+    const cento = await requestedLink('limites@maratonei.test');
+    expect((await resetWith(cento.token, 'b'.repeat(128))).status).toBe(200);
+  });
+
+  it('token e senhas não aparecem nos logs', async () => {
+    await createUser({ email: 'logs@maratonei.test', password: PASSWORD });
+    const { logger, raw } = captureLogs();
+    const app = createApp({ config, logger });
+    const agent = request.agent(app).set('Origin', allowedOrigin());
+
+    await agent.post('/api/v1/auth/request-password-reset').send({ email: 'logs@maratonei.test' });
+    const link = new URL(linkIn(outbox[0]!));
+    const token = tokenOf(link);
+    await request(app).get(`${link.pathname}${link.search}`);
+    await agent.post('/api/v1/auth/reset-password').send({ token, newPassword: NEW_PASSWORD });
+
+    const logs = raw.join('');
+    expect(logs).toContain('reset-password');
+    expect(logs).not.toContain(token);
+    expect(logs).not.toContain(PASSWORD);
+    expect(logs).not.toContain(NEW_PASSWORD);
   });
 });
 

@@ -17,6 +17,9 @@ export const AUTH_BASE_PATH = '/api/v1/auth';
 export const SESSION_COOKIE_NAME = 'better-auth.session_token';
 
 const DAY_SECONDS = 24 * 60 * 60;
+const RESET_TOKEN_SECONDS = 60 * 60;
+const VERIFY_EMAIL_PATH = '/verificar-email?verified=1';
+const RESET_PASSWORD_PATH = '/redefinir-senha';
 
 export interface AuthOptions {
   config?: Pick<Config, 'NODE_ENV' | 'WEB_ORIGIN' | 'ALLOWED_ORIGINS' | 'BETTER_AUTH_SECRET'>;
@@ -47,6 +50,16 @@ export function createAuth(options: AuthOptions = {}) {
       requireEmailVerification: true,
       autoSignIn: false,
       password: { hash: hashPassword, verify: verifyPassword },
+      resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        // O envio nunca muda a resposta HTTP: throttle e teto do `lib/email` descartam em silêncio.
+        await email.send({
+          to: user.email,
+          subject: 'Redefina sua senha no Maratonei',
+          text: `Olá, ${user.name}!\n\nPara criar uma senha nova, abra o link (ele vale por 1 hora e só funciona uma vez):\n${withWebCallback(url, config.WEB_ORIGIN, RESET_PASSWORD_PATH)}\n\nSe não foi você, pode ignorar este e-mail.\n`,
+        });
+      },
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -57,7 +70,7 @@ export function createAuth(options: AuthOptions = {}) {
         await email.send({
           to: user.email,
           subject: 'Confirme seu e-mail no Maratonei',
-          text: `Olá, ${user.name}!\n\nConfirme seu e-mail (o link vale por 24 horas):\n${withWebCallback(url, config.WEB_ORIGIN)}\n`,
+          text: `Olá, ${user.name}!\n\nConfirme seu e-mail (o link vale por 24 horas):\n${withWebCallback(url, config.WEB_ORIGIN, VERIFY_EMAIL_PATH)}\n`,
         });
       },
     },
@@ -72,18 +85,17 @@ export function createAuth(options: AuthOptions = {}) {
 }
 
 /**
- * O link de verificação passa pela API e redireciona ao web. O Better Auth usa
- * `callbackURL=/` por padrão (relativo, que resolveria na origem da API): aqui o
- * destino vira sempre absoluto na origem do web, ou a tela de verificação do web quando é só `/`.
+ * Os links de verificação e de reset passam pela API e redirecionam ao web. O Better Auth usa
+ * `callbackURL=/` (ou vazio) por padrão, relativo, que resolveria na origem da API: aqui o
+ * destino vira sempre absoluto na origem do web, ou `defaultPath` quando não há destino.
  */
-function withWebCallback(url: string, webOrigin: string): string {
+function withWebCallback(url: string, webOrigin: string, defaultPath: string): string {
   const link = new URL(url);
   const callback = link.searchParams.get('callbackURL');
-  const target = !callback || callback === '/' ? '/verificar-email?verified=1' : callback;
+  const target = !callback || callback === '/' ? defaultPath : callback;
   const resolved = new URL(target, webOrigin);
   // `callbackURL` absoluto de outra origem confiável (ex.: a da API) nunca vira destino do link.
-  const safe =
-    resolved.origin === webOrigin ? resolved : new URL('/verificar-email?verified=1', webOrigin);
+  const safe = resolved.origin === webOrigin ? resolved : new URL(defaultPath, webOrigin);
   link.searchParams.set('callbackURL', safe.toString());
   return link.toString();
 }
