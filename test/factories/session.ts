@@ -4,10 +4,10 @@ import { prisma } from '../../src/lib/prisma.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Cria uma sessão válida (7 dias) no banco para o usuário. */
+/** Cria uma sessão válida (7 dias) no banco para o usuário; `createdAt` simula sessão antiga. */
 export async function createSession(
   user: Pick<User, 'id'>,
-  options: { expiresAt?: Date } = {},
+  options: { expiresAt?: Date; createdAt?: Date } = {},
 ): Promise<Session> {
   return prisma.session.create({
     data: {
@@ -15,6 +15,7 @@ export async function createSession(
       token: randomBytes(32).toString('base64url'),
       expiresAt: options.expiresAt ?? new Date(Date.now() + 7 * DAY_MS),
       userAgent: 'vitest',
+      ...(options.createdAt ? { createdAt: options.createdAt } : {}),
     },
   });
 }

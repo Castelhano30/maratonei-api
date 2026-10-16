@@ -72,22 +72,37 @@ const webOrigin = z
     return origin;
   });
 
-export const EnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  DATABASE_URL: postgresUrl,
-  DIRECT_DATABASE_URL: postgresUrl.optional(),
-  ALLOWED_ORIGINS: allowedOrigins,
-  // Origem pública do web: base dos links de e-mail e `baseURL` do Better Auth.
-  WEB_ORIGIN: webOrigin,
-  BETTER_AUTH_SECRET: z
-    .string()
-    .trim()
-    .min(32, 'mínimo de 32 caracteres')
-    .refine((value) => !value.startsWith('troque-por-'), 'troque o segredo de exemplo'),
-  EMAIL_TRANSPORT: z.enum(['console']).default('console'),
-});
+export const EnvSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    DATABASE_URL: postgresUrl,
+    DIRECT_DATABASE_URL: postgresUrl.optional(),
+    ALLOWED_ORIGINS: allowedOrigins,
+    // Origem pública do web: base dos links de e-mail e `baseURL` do Better Auth.
+    WEB_ORIGIN: webOrigin,
+    BETTER_AUTH_SECRET: z
+      .string()
+      .trim()
+      .min(32, 'mínimo de 32 caracteres')
+      .refine((value) => !value.startsWith('troque-por-'), 'troque o segredo de exemplo'),
+    EMAIL_TRANSPORT: z.enum(['console']).default('console'),
+    // Login com Google (OAuth). Opcional: sem as duas variáveis o provedor fica desligado.
+    GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [env.GOOGLE_CLIENT_ID ? 'GOOGLE_CLIENT_SECRET' : 'GOOGLE_CLIENT_ID'],
+        message: 'informe GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET juntos (ou nenhum dos dois)',
+      });
+    }
+  });
 
 export type Config = z.infer<typeof EnvSchema>;
 

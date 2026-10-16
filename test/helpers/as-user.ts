@@ -33,9 +33,13 @@ export type UserClient = supertest.Agent & { user: User; session: Session };
  * Cliente Supertest autenticado: cria (ou usa) o usuário, abre uma sessão no
  * banco e envia o cookie de sessão e um `Origin` permitido em todas as requisições.
  */
-export async function asUser(user?: User, app: Express = testApp()): Promise<UserClient> {
+export async function asUser(
+  user?: User,
+  app: Express = testApp(),
+  sessionOptions: Parameters<typeof createSession>[1] = {},
+): Promise<UserClient> {
   const owner = user ?? (await createUser());
-  const session = await createSession(owner);
+  const session = await createSession(owner, sessionOptions);
   const agent = supertest
     .agent(app)
     .set('Origin', allowedOrigin())

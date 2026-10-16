@@ -36,6 +36,30 @@ describe('parseConfig (AD-16)', () => {
     });
   });
 
+  it('Google é opcional: sem credenciais fica indefinido, com as duas é aceito', () => {
+    const off = parseConfig(validEnv);
+    expect(off.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(off.GOOGLE_CLIENT_SECRET).toBeUndefined();
+    expect(parseConfig({ ...validEnv, GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' })).toEqual(
+      off,
+    );
+    const on = parseConfig({
+      ...validEnv,
+      GOOGLE_CLIENT_ID: 'id',
+      GOOGLE_CLIENT_SECRET: 'segredo',
+    });
+    expect(on).toMatchObject({ GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'segredo' });
+  });
+
+  it.each([
+    ['só o id', { GOOGLE_CLIENT_ID: 'id' }, 'GOOGLE_CLIENT_SECRET'],
+    ['só o segredo', { GOOGLE_CLIENT_SECRET: 'segredo' }, 'GOOGLE_CLIENT_ID'],
+  ])('Google com %s é rejeitado sem vazar o valor', (_nome, extra, variable) => {
+    const error = configErrorOf({ ...validEnv, ...extra });
+    expect(error.issues.map((i) => i.variable)).toEqual([variable]);
+    expect(JSON.stringify(error.issues)).not.toContain('segredo"');
+  });
+
   it('normaliza e deduplica ALLOWED_ORIGINS', () => {
     const config = parseConfig({
       ...validEnv,
