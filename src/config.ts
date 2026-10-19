@@ -92,6 +92,10 @@ export const EnvSchema = z
     EMAIL_TRANSPORT: z.enum(['console']).default('console'),
     // Teto técnico de membros por lista (aplicado só em `lists.addMember`).
     MAX_LIST_MEMBERS: z.coerce.number().int().min(1).default(100),
+    // TMDB (opcional): sem chave, busca e detalhe respondem 503 TMDB_UNAVAILABLE.
+    TMDB_API_KEY: z.string().trim().min(1).optional(),
+    // Só para apontar ao TMDB fake; o padrão é a API oficial.
+    TMDB_BASE_URL: z.url().optional(),
     // Login com Google (OAuth). Opcional: sem as duas variáveis o provedor fica desligado.
     GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),

@@ -37,6 +37,22 @@ describe('parseConfig (AD-16)', () => {
     });
   });
 
+  it('TMDB é opcional: sem chave fica indefinido; com chave e base é aceito; base inválida falha', () => {
+    const off = parseConfig(validEnv);
+    expect(off.TMDB_API_KEY).toBeUndefined();
+    expect(parseConfig({ ...validEnv, TMDB_API_KEY: '' })).toEqual(off);
+    const on = parseConfig({
+      ...validEnv,
+      TMDB_API_KEY: 'abc',
+      TMDB_BASE_URL: 'http://127.0.0.1:9/3',
+    });
+    expect(on.TMDB_API_KEY).toBe('abc');
+    expect(on.TMDB_BASE_URL).toBe('http://127.0.0.1:9/3');
+    expect(configErrorOf({ ...validEnv, TMDB_BASE_URL: 'nao-e-url' }).issues[0]?.variable).toBe(
+      'TMDB_BASE_URL',
+    );
+  });
+
   it('Google é opcional: sem credenciais fica indefinido, com as duas é aceito', () => {
     const off = parseConfig(validEnv);
     expect(off.GOOGLE_CLIENT_ID).toBeUndefined();
