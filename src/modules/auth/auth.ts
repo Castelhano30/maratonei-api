@@ -19,7 +19,6 @@ export const SESSION_COOKIE_NAME = 'better-auth.session_token';
 
 const DAY_SECONDS = 24 * 60 * 60;
 const RESET_TOKEN_SECONDS = 60 * 60;
-const VERIFY_EMAIL_PATH = '/verificar-email?verified=1';
 const RESET_PASSWORD_PATH = '/redefinir-senha';
 /** Janela em que a sessão conta como "fresca" para ações sensíveis (excluir a conta). */
 export const SESSION_FRESH_SECONDS = 5 * 60;
@@ -53,7 +52,8 @@ export interface AuthOptions {
 
 /**
  * Única instância do Better Auth (AD-6): nada fora de `modules/auth` importa o pacote.
- * Verificação de e-mail obrigatória, sem login automático em nenhum ponto.
+ * Cadastro com senha abre a sessão na hora, sem verificação de e-mail (desligada por ora; a coluna
+ * `emailVerified` segue gravada como `false` para a verificação voltar sem migração).
  */
 export function createAuth(options: AuthOptions = {}) {
   const config = options.config ?? defaultConfig;
@@ -73,8 +73,8 @@ export function createAuth(options: AuthOptions = {}) {
       enabled: true,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       maxPasswordLength: PASSWORD_MAX_LENGTH,
-      requireEmailVerification: true,
-      autoSignIn: false,
+      requireEmailVerification: false,
+      autoSignIn: true,
       password: { hash: hashPassword, verify: verifyPassword },
       resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
       revokeSessionsOnPasswordReset: true,
@@ -84,19 +84,6 @@ export function createAuth(options: AuthOptions = {}) {
           to: user.email,
           subject: 'Redefina sua senha no Maratonei',
           text: `Olá, ${user.name}!\n\nPara criar uma senha nova, abra o link (ele vale por 1 hora e só funciona uma vez):\n${withWebCallback(url, config.WEB_ORIGIN, RESET_PASSWORD_PATH)}\n\nSe não foi você, pode ignorar este e-mail.\n`,
-        });
-      },
-    },
-    emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: true,
-      autoSignInAfterVerification: false,
-      expiresIn: DAY_SECONDS,
-      sendVerificationEmail: async ({ user, url }) => {
-        await email.send({
-          to: user.email,
-          subject: 'Confirme seu e-mail no Maratonei',
-          text: `Olá, ${user.name}!\n\nConfirme seu e-mail (o link vale por 24 horas):\n${withWebCallback(url, config.WEB_ORIGIN, VERIFY_EMAIL_PATH)}\n`,
         });
       },
     },
@@ -172,15 +159,6 @@ export function createAuth(options: AuthOptions = {}) {
           },
         },
       },
-      session: {
-        create: {
-          // Nenhum caminho abre sessão para e-mail não verificado (inclui Google sem verificação).
-          before: async (session) => {
-            const user = await prisma.user.findUnique({ where: { id: session.userId } });
-            return user?.emailVerified === true ? undefined : false;
-          },
-        },
-      },
     },
     session: {
       expiresIn: 30 * DAY_SECONDS,
@@ -199,7 +177,7 @@ export function createAuth(options: AuthOptions = {}) {
 }
 
 /**
- * Os links de verificação e de reset passam pela API e redirecionam ao web. O Better Auth usa
+ * O link de reset passa pela API e redirecionam ao web. O Better Auth usa
  * `callbackURL=/` (ou vazio) por padrão, relativo, que resolveria na origem da API: aqui o
  * destino vira sempre absoluto na origem do web, ou `defaultPath` quando não há destino.
  */

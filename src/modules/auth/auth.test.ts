@@ -1,6 +1,6 @@
 import express from 'express';
 import request from 'supertest';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createApp } from '../../app.js';
 import { config } from '../../config.js';
 import { emailSender } from '../../lib/email.js';
@@ -34,64 +34,47 @@ function followLink(link: string) {
   return request(testApp()).get(`${url.pathname}${url.search}`);
 }
 
-async function registerVerified(email: string) {
-  await signUp(email);
-  const link = linkIn(outbox.at(-1)!);
-  await followLink(link);
-}
-
 describe('fluxo completo', () => {
-  it('cadastro → login bloqueado → verificação → login → /me 200 → logout → /me 401', async () => {
+  it('cadastro (já logado) → /me 200 → logout → /me 401 → login → /me 200', async () => {
     const agent = client();
     const email = 'fluxo@maratonei.test';
 
     expect((await signUp(email, PASSWORD, agent)).status).toBe(200);
-    expect((await signIn(email, PASSWORD, agent)).status).toBe(403);
-    expect((await agent.get('/api/v1/me')).status).toBe(401);
-
-    expect((await followLink(linkIn(outbox.at(-1)!))).status).toBe(302);
-    expect((await signIn(email, PASSWORD, agent)).status).toBe(200);
     expect((await agent.get('/api/v1/me')).status).toBe(200);
 
     expect((await agent.post('/api/v1/auth/sign-out').send({})).status).toBe(200);
     expect((await agent.get('/api/v1/me')).status).toBe(401);
+
+    expect((await signIn(email, PASSWORD, agent)).status).toBe(200);
+    expect((await agent.get('/api/v1/me')).status).toBe(200);
   });
 });
 
 describe('cadastro', () => {
-  it('cria o usuário não verificado, envia o e-mail de verificação e não abre sessão', async () => {
+  it('cria o usuário com emailVerified=false, abre a sessão e não envia e-mail', async () => {
     const res = await signUp('novo@maratonei.test');
 
     expect(res.status).toBe(200);
-    expect(res.headers['set-cookie']).toBeUndefined();
+    const cookie = (res.headers['set-cookie'] as unknown as string[]).join(';');
+    expect(cookie).toMatch(/better-auth.session_token=/);
     const user = await prisma.user.findUniqueOrThrow({ where: { email: 'novo@maratonei.test' } });
     expect(user.emailVerified).toBe(false);
     expect(user.id).toMatch(UUID_V7);
-    expect(await prisma.session.count()).toBe(0);
-
-    expect(outbox).toHaveLength(1);
-    expect(outbox[0]?.to).toBe('novo@maratonei.test');
-    const link = new URL(linkIn(outbox[0]!));
-    expect(link.origin).toBe(config.WEB_ORIGIN);
-    expect(link.pathname).toBe('/api/v1/auth/verify-email');
-    expect(link.searchParams.get('token')).toBeTruthy();
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(1);
+    expect(outbox).toHaveLength(0);
   });
 
-  it('e-mail já cadastrado: resposta indistinguível do cadastro novo', async () => {
+  it('e-mail já cadastrado: recusa sem criar outra conta nem abrir sessão', async () => {
     await createUser({ email: 'existente@maratonei.test', password: PASSWORD });
 
-    const novo = await signUp('outro@maratonei.test');
     const repetido = await signUp('existente@maratonei.test');
 
-    expect(repetido.status).toBe(novo.status);
+    expect(repetido.status).toBeGreaterThanOrEqual(400);
+    expect(repetido.status).toBeLessThan(500);
     expect(repetido.headers['set-cookie']).toBeUndefined();
-    expect(Object.keys(repetido.body as object).sort()).toEqual(
-      Object.keys(novo.body as object).sort(),
-    );
-    expect(Object.keys((repetido.body as { user: object }).user).sort()).toEqual(
-      Object.keys((novo.body as { user: object }).user).sort(),
-    );
     expect(await prisma.user.count({ where: { email: 'existente@maratonei.test' } })).toBe(1);
+    expect(await prisma.session.count()).toBe(0);
+    expect(outbox).toHaveLength(0);
   });
 
   it.each([
@@ -136,21 +119,23 @@ describe('cadastro', () => {
 });
 
 describe('login', () => {
-  it('não verificado: 403, sem sessão, e reenvia o e-mail de verificação', async () => {
-    await signUp('pendente@maratonei.test');
-    expect(outbox).toHaveLength(1);
+  it('conta não verificada e senha correta: 200 e sessão aberta', async () => {
+    await createUser({
+      email: 'pendente@maratonei.test',
+      emailVerified: false,
+      password: PASSWORD,
+    });
 
     const res = await signIn('pendente@maratonei.test');
 
-    expect(res.status).toBe(403);
-    expect(res.headers['set-cookie']).toBeUndefined();
-    expect(await prisma.session.count()).toBe(0);
-    expect(outbox).toHaveLength(2);
-    expect(outbox[1]?.to).toBe('pendente@maratonei.test');
+    expect(res.status).toBe(200);
+    expect(res.headers['set-cookie']).toBeDefined();
+    expect(await prisma.session.count()).toBe(1);
+    expect(outbox).toHaveLength(0);
   });
 
   it('verificado e senha correta: cookie de sessão e GET /me 200', async () => {
-    await registerVerified('ok@maratonei.test');
+    await createUser({ email: 'ok@maratonei.test', name: 'Maria Silva', password: PASSWORD });
     const agent = client();
 
     const res = await signIn('ok@maratonei.test', PASSWORD, agent);
@@ -174,7 +159,7 @@ describe('login', () => {
   });
 
   it('a sessão dura 30 dias', async () => {
-    await registerVerified('dura@maratonei.test');
+    await createUser({ email: 'dura@maratonei.test', password: PASSWORD });
     await signIn('dura@maratonei.test');
 
     const session = await prisma.session.findFirstOrThrow();
@@ -184,7 +169,7 @@ describe('login', () => {
   });
 
   it('senha errada: 401 genérico, igual ao de e-mail inexistente', async () => {
-    await registerVerified('errada@maratonei.test');
+    await createUser({ email: 'errada@maratonei.test', password: PASSWORD });
 
     const errada = await signIn('errada@maratonei.test', 'senha-incorreta-1');
     const inexistente = await signIn('ninguem@maratonei.test');
@@ -196,65 +181,9 @@ describe('login', () => {
   });
 });
 
-describe('verificação de e-mail', () => {
-  it('token válido: verifica, redireciona ao web e não cria sessão', async () => {
-    await signUp('verifica@maratonei.test');
-
-    const res = await followLink(linkIn(outbox[0]!));
-
-    expect(res.status).toBe(302);
-    const location = new URL(res.headers.location!);
-    expect(location.origin).toBe(config.WEB_ORIGIN);
-    expect(location.pathname + location.search).toBe('/verificar-email?verified=1');
-    expect(res.headers['set-cookie']).toBeUndefined();
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { email: 'verifica@maratonei.test' },
-    });
-    expect(user.emailVerified).toBe(true);
-    expect(await prisma.session.count()).toBe(0);
-  });
-
-  it('token inválido: redireciona ao web com erro e nada é verificado', async () => {
-    await signUp('invalido@maratonei.test');
-    const link = new URL(linkIn(outbox[0]!));
-    link.searchParams.set('token', 'token-invalido');
-
-    const res = await followLink(link.toString());
-
-    expect(res.status).toBe(302);
-    const location = new URL(res.headers.location!);
-    expect(location.origin).toBe(config.WEB_ORIGIN);
-    expect(location.searchParams.get('error')).toBeTruthy();
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { email: 'invalido@maratonei.test' },
-    });
-    expect(user.emailVerified).toBe(false);
-  });
-
-  it('token vencido (24 h): redireciona ao web com erro', async () => {
-    await signUp('vencido@maratonei.test');
-    const link = linkIn(outbox[0]!);
-    // O token é um JWT assinado: o tempo é simulado avançando só o `Date`.
-    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 25 * 60 * 60 * 1000 });
-    let res;
-    try {
-      res = await followLink(link);
-    } finally {
-      vi.useRealTimers();
-    }
-
-    expect(res.status).toBe(302);
-    expect(new URL(res.headers.location!).searchParams.get('error')).toBeTruthy();
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { email: 'vencido@maratonei.test' },
-    });
-    expect(user.emailVerified).toBe(false);
-  });
-});
-
 describe('GET /api/v1/me e logout', () => {
   it('logout invalida cookie e sessão; GET /me volta a 401', async () => {
-    await registerVerified('sai@maratonei.test');
+    await createUser({ email: 'sai@maratonei.test', password: PASSWORD });
     const agent = client();
     await signIn('sai@maratonei.test', PASSWORD, agent);
     expect((await agent.get('/api/v1/me')).status).toBe(200);
@@ -330,58 +259,18 @@ describe('origem e logs', () => {
     expect(await prisma.user.count()).toBe(0);
   });
 
-  it('senha, token de verificação e cookie não aparecem nos logs', async () => {
+  it('senha e cookie não aparecem nos logs', async () => {
     const { logger, raw } = captureLogs();
     const app = createApp({ config, logger });
     const agent = request.agent(app).set('Origin', allowedOrigin());
 
     await signUp('log@maratonei.test', PASSWORD, agent);
-    const link = new URL(linkIn(outbox[0]!));
-    const token = link.searchParams.get('token')!;
-    await request(app).get(`${link.pathname}${link.search}`);
     await signIn('log@maratonei.test', PASSWORD, agent);
     await agent.get('/api/v1/me');
 
     const logs = raw.join('');
-    expect(logs).toContain('verify-email');
-    expect(logs).not.toContain(token);
     expect(logs).not.toContain(PASSWORD);
     expect(logs).not.toMatch(/better-auth\.session_token=[^;"\s]{10,}/);
-  });
-});
-
-describe('callbackURL do link de verificação', () => {
-  it('preserva o destino informado no cadastro, absoluto na origem do web', async () => {
-    await client().post('/api/v1/auth/sign-up/email').send({
-      name: 'Maria',
-      email: 'cb@maratonei.test',
-      password: PASSWORD,
-      callbackURL: '/verificar-email?verified=1&next=%2Fconvite%2Fabc',
-    });
-
-    const link = new URL(linkIn(outbox[0]!));
-    expect(link.searchParams.get('callbackURL')).toBe(
-      `${config.WEB_ORIGIN}/verificar-email?verified=1&next=%2Fconvite%2Fabc`,
-    );
-    const res = await followLink(link.toString());
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe(
-      `${config.WEB_ORIGIN}/verificar-email?verified=1&next=%2Fconvite%2Fabc`,
-    );
-  });
-
-  it('callbackURL absoluto de outra origem confiável (a da API) cai no destino padrão', async () => {
-    await client().post('/api/v1/auth/sign-up/email').send({
-      name: 'Maria',
-      email: 'cb2@maratonei.test',
-      password: PASSWORD,
-      callbackURL: 'http://localhost:4000/api/v1/health',
-    });
-
-    const link = new URL(linkIn(outbox[0]!));
-    expect(link.searchParams.get('callbackURL')).toBe(
-      `${config.WEB_ORIGIN}/verificar-email?verified=1`,
-    );
   });
 });
 
@@ -503,7 +392,7 @@ describe('reset de senha', () => {
   });
 
   it('redefinição: troca a senha, revoga todas as sessões, não emite cookie e não abre sessão', async () => {
-    await registerVerified('troca@maratonei.test');
+    await createUser({ email: 'troca@maratonei.test', password: PASSWORD });
     const antigo = client();
     const outro = client();
     await signIn('troca@maratonei.test', PASSWORD, antigo);
