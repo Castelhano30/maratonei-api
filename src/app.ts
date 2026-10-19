@@ -11,6 +11,7 @@ import { healthRouter } from './modules/health/index.js';
 import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
 import { listsRouter } from './modules/lists/index.js';
 import { membersRouter } from './modules/members/index.js';
+import { titlesRouter } from './modules/titles/index.js';
 import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/openapi.routes.js';
 
 export interface AppOptions {
@@ -51,6 +52,7 @@ export function createApp(options: AppOptions = {}): Express {
   api.use('/lists/:listId/members', membersRouter);
   api.use('/lists/:listId/invite', listInviteRouter);
   api.use('/invites', invitesRouter);
+  api.use('/titles', titlesRouter);
   api.use(createOpenApiRouter());
   app.use(API_PREFIX, api);
 
