@@ -7,6 +7,7 @@ import { createHttpLogger, createLogger } from './http/logger.js';
 import { originCheck } from './http/origin-check.js';
 import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
+import { commentsRouter } from './modules/comments/index.js';
 import { healthRouter } from './modules/health/index.js';
 import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
 import { itemsRouter } from './modules/items/index.js';
@@ -52,6 +53,7 @@ export function createApp(options: AppOptions = {}): Express {
   api.use('/me', meRouter);
   api.use('/lists', listsRouter);
   api.use('/lists/:listId/items/:itemId/ratings', ratingsRouter);
+  api.use('/lists/:listId/items/:itemId/comments', commentsRouter);
   api.use('/lists/:listId/items', itemsRouter);
   api.use('/lists/:listId/members', membersRouter);
   api.use('/lists/:listId/invite', listInviteRouter);
