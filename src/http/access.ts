@@ -58,3 +58,28 @@ export function requireListRole(minimum: ListRole): RequestHandler {
     }
   };
 }
+
+const itemIdSchema = z.uuid();
+
+/**
+ * Garante que `:itemId` é um item da lista da rota (`req.membership.listId`);
+ * item inexistente, malformado ou de outra lista → 404 `ITEM_NOT_FOUND`.
+ * Deve vir depois de `requireListRole`.
+ */
+export function requireItem(): RequestHandler {
+  return async (req, _res, next) => {
+    try {
+      if (!req.membership) throw new AppError('LIST_NOT_FOUND');
+      const parsed = itemIdSchema.safeParse(req.params.itemId);
+      if (!parsed.success) throw new AppError('ITEM_NOT_FOUND');
+      const item = await prisma.listItem.findFirst({
+        where: { id: parsed.data, listId: req.membership.listId },
+        select: { id: true },
+      });
+      if (!item) throw new AppError('ITEM_NOT_FOUND');
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
