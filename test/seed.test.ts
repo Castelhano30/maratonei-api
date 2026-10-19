@@ -46,6 +46,19 @@ describe('prisma/seed.ts', () => {
     expect(lists[0]).toMatchObject({ name: 'Maratona de exemplo', ownerId: user?.id });
     expect(lists[0]?.members).toHaveLength(1);
     expect(lists[0]?.members[0]).toMatchObject({ userId: user?.id, role: 'OWNER' });
+
+    // Dois itens de exemplo com títulos estáticos (sem TMDB), idempotentes.
+    const items = await prisma.listItem.findMany({
+      include: { title: true },
+      orderBy: { title: { name: 'asc' } },
+    });
+    expect(items.map((item) => [item.title.name, item.title.mediaType, item.status])).toEqual([
+      ['Dark', 'TV', 'WATCHING'],
+      ['Duna', 'MOVIE', 'WANT'],
+    ]);
+    expect(items[0]?.title.seasons).toHaveLength(3);
+    expect(items.every((item) => item.addedById === user?.id)).toBe(true);
+    expect(await prisma.title.count()).toBe(2);
   });
 
   it('recusa rodar com NODE_ENV=production', async () => {

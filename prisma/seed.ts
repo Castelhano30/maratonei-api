@@ -15,6 +15,53 @@ const SEED_LIST_NAME = 'Maratona de exemplo';
 const SEED_LIST_DESCRIPTION = 'Lista de exemplo criada pelo seed de desenvolvimento.';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
 
+// Títulos de exemplo (dados estáticos: o seed nunca chama o TMDB).
+interface SeedTitle {
+  tmdbId: number;
+  mediaType: 'MOVIE' | 'TV';
+  name: string;
+  overview: string;
+  posterPath: string;
+  releaseYear: number;
+  genreIds: number[];
+  genres: string[];
+  runtime: number | null;
+  seasons?: { season: number; episodeCount: number }[];
+  status: 'WANT' | 'WATCHING' | 'WATCHED';
+}
+
+const SEED_TITLES: SeedTitle[] = [
+  {
+    tmdbId: 438631,
+    mediaType: 'MOVIE',
+    name: 'Duna',
+    overview: 'Paul Atreides une forças com os Fremen para vingar sua família.',
+    posterPath: '/d5NXSklXo0qyIYkgV94XAgMIckC.jpg',
+    releaseYear: 2021,
+    genreIds: [878, 12],
+    genres: ['Ficção científica', 'Aventura'],
+    runtime: 155,
+    status: 'WANT',
+  },
+  {
+    tmdbId: 70523,
+    mediaType: 'TV',
+    name: 'Dark',
+    overview: 'Uma cidade alemã esconde segredos que atravessam gerações.',
+    posterPath: '/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg',
+    releaseYear: 2017,
+    genreIds: [9648, 18],
+    genres: ['Mistério', 'Drama'],
+    runtime: null,
+    seasons: [
+      { season: 1, episodeCount: 10 },
+      { season: 2, episodeCount: 8 },
+      { season: 3, episodeCount: 8 },
+    ],
+    status: 'WATCHING',
+  },
+];
+
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 function databaseHost(connectionString: string): string {
@@ -64,14 +111,30 @@ async function main(): Promise<void> {
         where: { ownerId: user.id, name: SEED_LIST_NAME },
         select: { id: true },
       });
-      if (!existingList) {
-        await tx.list.create({
+      const list =
+        existingList ??
+        (await tx.list.create({
           data: {
             name: SEED_LIST_NAME,
             description: SEED_LIST_DESCRIPTION,
             ownerId: user.id,
             members: { create: { userId: user.id, role: 'OWNER' } },
           },
+          select: { id: true },
+        }));
+
+      // Itens de exemplo (idempotente: título global por (mediaType, tmdbId), item por (lista, título)).
+      for (const { status, seasons, ...title } of SEED_TITLES) {
+        const row = await tx.title.upsert({
+          where: { mediaType_tmdbId: { mediaType: title.mediaType, tmdbId: title.tmdbId } },
+          create: { ...title, ...(seasons ? { seasons } : {}) },
+          update: {},
+          select: { id: true },
+        });
+        await tx.listItem.upsert({
+          where: { listId_titleId: { listId: list.id, titleId: row.id } },
+          create: { listId: list.id, titleId: row.id, addedById: user.id, status },
+          update: {},
         });
       }
 
@@ -95,7 +158,9 @@ async function main(): Promise<void> {
       }
     });
 
-    console.log(`Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo.`);
+    console.log(
+      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo e dois itens.`,
+    );
   } finally {
     await prisma.$disconnect();
   }
