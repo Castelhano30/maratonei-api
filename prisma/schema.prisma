@@ -31,6 +31,7 @@ model User {
   ownedLists     List[]
   memberships    ListMember[]
   invitesCreated Invite[]
+  itemsAdded     ListItem[]
 
   @@map("user")
 }
@@ -111,6 +112,7 @@ model List {
   owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members     ListMember[]
   invites     Invite[]
+  items       ListItem[]
 
   @@index([ownerId])
   @@map("list")
@@ -143,4 +145,67 @@ model Invite {
 
   @@index([listId])
   @@map("invite")
+}
+
+// ---------------------------------------------------------------------------
+// Títulos e itens de lista (módulos `titles` e `items`, AD-8/AD-11).
+// `Title` é global (cache do TMDB compartilhado entre listas); `ListItem` liga
+// um título a uma lista, com o status coletivo.
+// ---------------------------------------------------------------------------
+
+enum MediaType {
+  MOVIE
+  TV
+
+  @@map("media_type")
+}
+
+enum ItemStatus {
+  WANT
+  WATCHING
+  WATCHED
+
+  @@map("item_status")
+}
+
+model Title {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  tmdbId      Int        @map("tmdb_id")
+  mediaType   MediaType  @map("media_type")
+  name        String
+  overview    String     @default("")
+  posterPath  String?    @map("poster_path")
+  releaseYear Int?       @map("release_year")
+  genreIds    Int[]      @map("genre_ids")
+  // Nomes dos gêneros, na mesma ordem de genreIds.
+  genres      String[]
+  // Minutos (filmes).
+  runtime     Int?
+  // Séries: [{ season, episodeCount }]. Episódios ficam só em memória.
+  seasons     Json?
+  cachedAt    DateTime   @default(now()) @map("cached_at") @db.Timestamptz(3)
+  items       ListItem[]
+
+  @@unique([mediaType, tmdbId])
+  @@map("title")
+}
+
+model ListItem {
+  id        String     @id @default(uuid(7)) @db.Uuid
+  listId    String     @map("list_id") @db.Uuid
+  titleId   String     @map("title_id") @db.Uuid
+  addedById String?    @map("added_by_id") @db.Uuid
+  status    ItemStatus @default(WANT)
+  addedAt   DateTime   @default(now()) @map("added_at") @db.Timestamptz(3)
+  updatedAt DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  list      List       @relation(fields: [listId], references: [id], onDelete: Cascade)
+  title     Title      @relation(fields: [titleId], references: [id], onDelete: Restrict)
+  addedBy   User?      @relation(fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([listId, titleId])
+  @@index([listId, addedAt])
+  @@index([listId, status])
+  @@index([titleId])
+  @@index([addedById])
+  @@map("list_item")
 }
