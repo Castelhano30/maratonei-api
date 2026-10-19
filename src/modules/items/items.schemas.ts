@@ -35,7 +35,7 @@ export const ListItem = z
     addedAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
     ratingAverage: z.number().min(1).max(5).nullable().openapi({
-      description: 'Média das notas; `null` sem notas (as notas chegam na Fase 5).',
+      description: 'Média das notas dos membros (2 casas); `null` sem notas.',
     }),
     ratingCount: z.number().int().min(0),
   })

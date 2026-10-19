@@ -9,6 +9,7 @@ import { fakeTmdb } from '../../../test/helpers/tmdb.js';
 import { movieDetail, tvDetail } from '../../../test/fakes/tmdb-client.js';
 import { createListItem } from '../../../test/factories/item.js';
 import { createList, createMembership } from '../../../test/factories/list.js';
+import { createRating } from '../../../test/factories/rating.js';
 import { createTitle } from '../../../test/factories/title.js';
 import { createUser } from '../../../test/factories/user.js';
 
@@ -453,5 +454,34 @@ describe('cascatas', () => {
     );
     expect(counts[s.list.id]).toBe(2);
     expect(counts[empty.id]).toBe(0);
+  });
+});
+
+describe('média e contagem de notas no ListItem (CAP-16)', () => {
+  it('lista, detalhe e status refletem criação, edição e remoção de notas', async () => {
+    const s = await listScenario();
+    const rated = await createListItem(s.list, { addedAt: new Date('2026-01-02') });
+    const bare = await createListItem(s.list, { addedAt: new Date('2026-01-01') });
+    const url = `${base(s.list.id)}/${rated.id}`;
+
+    await s.owner.put(`${url}/ratings/me`).send({ stars: 5 });
+    await s.member.put(`${url}/ratings/me`).send({ stars: 2 });
+    await s.editor.put(`${url}/ratings/me`).send({ stars: 4 });
+
+    const page = await s.member.get(base(s.list.id));
+    expect(page.body.data[0]).toMatchObject({ id: rated.id, ratingAverage: 3.67, ratingCount: 3 });
+    expect(page.body.data[1]).toMatchObject({ id: bare.id, ratingAverage: null, ratingCount: 0 });
+
+    await s.member.put(`${url}/ratings/me`).send({ stars: 5 });
+    const detail = await s.member.get(url);
+    expect(detail.body).toMatchObject({ ratingAverage: 4.67, ratingCount: 3 });
+
+    await s.owner.delete(`${url}/ratings/me`);
+    const status = await s.member.put(`${url}/status`).send({ status: 'WATCHED' });
+    expect(status.body).toMatchObject({ ratingAverage: 4.5, ratingCount: 2 });
+
+    await createRating(bare, { id: s.ids.owner }, 1);
+    const after = await s.member.get(base(s.list.id));
+    expect(after.body.data[1]).toMatchObject({ ratingAverage: 1, ratingCount: 1 });
   });
 });

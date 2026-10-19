@@ -2,6 +2,7 @@ import { AppError } from '../../http/app-error.js';
 import { pageArgs, toPage, type Page } from '../../http/pagination.js';
 import type { ItemStatus } from '../../generated/prisma/client.js';
 import { prisma, Prisma } from '../../lib/prisma.js';
+import { ratingStatsByItem, type RatingStats } from '../ratings/index.js';
 import { ensureTitle, toTitleSummary } from '../titles/index.js';
 import type { AddItemBody, ItemsQuery, ListItem } from './items.schemas.js';
 
@@ -12,7 +13,9 @@ const itemInclude = {
 
 type ItemRow = Prisma.ListItemGetPayload<{ include: typeof itemInclude }>;
 
-function toListItem(row: ItemRow): ListItem {
+const NO_RATINGS: RatingStats = { average: null, count: 0 };
+
+function toListItem(row: ItemRow, stats: RatingStats = NO_RATINGS): ListItem {
   return {
     id: row.id,
     title: toTitleSummary(row.title),
@@ -20,10 +23,13 @@ function toListItem(row: ItemRow): ListItem {
     addedBy: row.addedBy,
     addedAt: row.addedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    // Notas chegam na Fase 5 (`Rating`); até lá, sem notas.
-    ratingAverage: null,
-    ratingCount: 0,
+    ratingAverage: stats.average,
+    ratingCount: stats.count,
   };
+}
+
+async function statsOf(itemId: string): Promise<RatingStats> {
+  return (await ratingStatsByItem([itemId])).get(itemId) ?? NO_RATINGS;
 }
 
 export async function listItems(listId: string, query: ItemsQuery): Promise<Page<ListItem>> {
@@ -49,7 +55,12 @@ export async function listItems(listId: string, query: ItemsQuery): Promise<Page
     }),
     prisma.listItem.count({ where }),
   ]);
-  return toPage(rows.map(toListItem), total, query);
+  const stats = await ratingStatsByItem(rows.map((row) => row.id));
+  return toPage(
+    rows.map((row) => toListItem(row, stats.get(row.id))),
+    total,
+    query,
+  );
 }
 
 export async function getItem(listId: string, itemId: string): Promise<ListItem> {
@@ -58,7 +69,7 @@ export async function getItem(listId: string, itemId: string): Promise<ListItem>
     include: itemInclude,
   });
   if (!row) throw new AppError('ITEM_NOT_FOUND');
-  return toListItem(row);
+  return toListItem(row, await statsOf(row.id));
 }
 
 /**
@@ -101,7 +112,7 @@ export async function setItemStatus(
       data: { status },
       include: itemInclude,
     });
-    return toListItem(row);
+    return toListItem(row, await statsOf(row.id));
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       throw new AppError('ITEM_NOT_FOUND');
