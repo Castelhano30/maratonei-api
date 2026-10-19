@@ -59,3 +59,14 @@ docker compose up -d --wait
 ```sh
 curl -s http://localhost:4000/api/v1/openapi.json -o ../maratonei-web/docs/contracts/openapi.local.json
 ```
+
+## Avaliações e comentários
+
+Sob `/api/v1/lists/:listId/items/:itemId` (qualquer membro; não membro recebe 404):
+
+- `GET ratings` (nota de cada membro e média), `PUT ratings/me` (`{stars: 1..5}`, cria ou edita) e
+  `DELETE ratings/me`. Só existe a nota própria: ninguém escreve a nota de outro membro.
+- `GET comments?page=&pageSize=&sort=createdAt:desc|asc`, `POST comments` (`{body}`, 1 a 2000
+  caracteres), `PATCH` e `DELETE comments/:commentId` (só o autor; de outro membro: 403 `NOT_OWN_RESOURCE`).
+- `ListItem.ratingAverage` (2 casas, `null` sem notas) e `ratingCount` vêm das notas reais.
+- Sair da lista, ser removido ou excluir o item apaga as notas e os comentários do membro (cascata).

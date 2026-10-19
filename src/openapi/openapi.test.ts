@@ -259,6 +259,71 @@ describe('títulos e itens no OpenAPI (Fase 3a)', () => {
   });
 });
 
+describe('avaliações e comentários no OpenAPI (Fase 4a)', () => {
+  const I = '/api/v1/lists/{listId}/items/{itemId}';
+  const EXPECTED: Record<string, string> = {
+    [`get ${I}/ratings`]: 'listRatings',
+    [`put ${I}/ratings/me`]: 'setMyRating',
+    [`delete ${I}/ratings/me`]: 'removeMyRating',
+    [`get ${I}/comments`]: 'listComments',
+    [`post ${I}/comments`]: 'createComment',
+    [`patch ${I}/comments/{commentId}`]: 'updateComment',
+    [`delete ${I}/comments/{commentId}`]: 'deleteComment',
+  };
+
+  it('documenta as rotas com operationId e 401 problem+json', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+
+    for (const [key, operationId] of Object.entries(EXPECTED)) {
+      const [method, path] = key.split(' ') as [string, string];
+      const operation = paths[path]?.[method] as
+        | (Operation & { responses: Record<string, { content?: Record<string, unknown> }> })
+        | undefined;
+      expect(operation?.operationId, key).toBe(operationId);
+      expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
+    }
+  });
+
+  it('documenta 403 NOT_OWN_RESOURCE na edição e exclusão e a paginação dos comentários', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<
+      string,
+      Record<string, { responses: Record<string, unknown>; parameters?: { name: string }[] }>
+    >;
+    const item = `${I}/comments/{commentId}`;
+
+    expect(Object.keys(paths[item]?.patch?.responses ?? {})).toEqual(
+      expect.arrayContaining(['200', '400', '403', '404']),
+    );
+    expect(Object.keys(paths[item]?.delete?.responses ?? {})).toEqual(
+      expect.arrayContaining(['204', '403', '404']),
+    );
+    expect(paths[`${I}/comments`]?.get?.parameters?.map((p) => p.name)).toEqual(
+      expect.arrayContaining(['sort', 'page', 'pageSize']),
+    );
+  });
+
+  it('publica Rating, RatingList, Comment e CommentPage', async () => {
+    const document = await fetchDocument();
+    const schemas = (document.components as { schemas: Record<string, Record<string, unknown>> })
+      .schemas;
+
+    expect(schemas.Rating).toMatchObject({
+      required: expect.arrayContaining(['member', 'stars', 'updatedAt']),
+    });
+    expect(schemas.RatingList).toMatchObject({
+      required: expect.arrayContaining(['average', 'count', 'data']),
+    });
+    expect(schemas.Comment).toMatchObject({
+      required: expect.arrayContaining(['id', 'author', 'body', 'createdAt', 'updatedAt']),
+    });
+    expect(schemas.CommentPage).toMatchObject({
+      required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+    });
+  });
+});
+
 describe('GET /docs (Swagger UI)', () => {
   it('responde 200 com o HTML do Swagger UI', async () => {
     const res = await request(testApp()).get('/docs');
