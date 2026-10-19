@@ -48,3 +48,14 @@ criado. Se o seu volume é anterior a esse arquivo, recrie-o (apaga os dados loc
 docker compose down -v
 docker compose up -d --wait
 ```
+
+## TMDB e contrato OpenAPI
+
+- `TMDB_API_KEY` (opcional, chave v3) liga a busca e o detalhe de títulos. Sem ela, ou com o TMDB fora,
+  essas rotas respondem 503 `TMDB_UNAVAILABLE`. Os testes nunca chamam o TMDB real: usam um fake injetável
+  (`test/helpers/tmdb.ts`) e o cliente HTTP é testado contra o servidor fake de `test/fakes/tmdb-server.ts`.
+- Para gerar o contrato para o web (Orval), com a API rodando (`pnpm dev`):
+
+```sh
+curl -s http://localhost:4000/api/v1/openapi.json -o ../maratonei-web/docs/contracts/openapi.local.json
+```

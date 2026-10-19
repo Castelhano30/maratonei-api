@@ -175,6 +175,90 @@ describe('listas, membros e convites no OpenAPI', () => {
   });
 });
 
+describe('títulos e itens no OpenAPI (Fase 3a)', () => {
+  const EXPECTED: Record<string, string> = {
+    'get /api/v1/titles/search': 'searchTitles',
+    'get /api/v1/titles/{mediaType}/{tmdbId}': 'getTitle',
+    'get /api/v1/lists/{listId}/items': 'listItems',
+    'post /api/v1/lists/{listId}/items': 'addItem',
+    'get /api/v1/lists/{listId}/items/{itemId}': 'getItem',
+    'put /api/v1/lists/{listId}/items/{itemId}/status': 'setItemStatus',
+    'patch /api/v1/lists/{listId}/items/{itemId}': 'patchItem',
+    'delete /api/v1/lists/{listId}/items/{itemId}': 'removeItem',
+  };
+
+  it('documenta as rotas com operationId e 401 problem+json', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+
+    for (const [key, operationId] of Object.entries(EXPECTED)) {
+      const [method, path] = key.split(' ') as [string, string];
+      const operation = paths[path]?.[method] as
+        | (Operation & { responses: Record<string, { content?: Record<string, unknown> }> })
+        | undefined;
+      expect(operation?.operationId, key).toBe(operationId);
+      expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
+    }
+  });
+
+  it('documenta os erros de domínio e os filtros de listItems', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<
+      string,
+      Record<string, { responses: Record<string, unknown>; parameters?: { name: string }[] }>
+    >;
+
+    expect(Object.keys(paths['/api/v1/titles/search']?.get?.responses ?? {})).toEqual(
+      expect.arrayContaining(['200', '400', '401', '503']),
+    );
+    expect(Object.keys(paths['/api/v1/lists/{listId}/items']?.post?.responses ?? {})).toEqual(
+      expect.arrayContaining(['201', '403', '404', '409', '503']),
+    );
+    const params = paths['/api/v1/lists/{listId}/items']?.get?.parameters?.map((p) => p.name);
+    expect(params).toEqual(
+      expect.arrayContaining(['status', 'mediaType', 'genreId', 'sort', 'page', 'pageSize']),
+    );
+  });
+
+  it('publica TitleSummary, TitleDetail e ListItem; itens respondem Page<T>', async () => {
+    const document = await fetchDocument();
+    const schemas = (document.components as { schemas: Record<string, Record<string, unknown>> })
+      .schemas;
+
+    expect(schemas.TitleSummary).toMatchObject({
+      required: expect.arrayContaining([
+        'tmdbId',
+        'mediaType',
+        'name',
+        'overview',
+        'posterPath',
+        'releaseYear',
+        'genreIds',
+      ]),
+    });
+    expect(schemas.TitleDetail).toMatchObject({
+      required: expect.arrayContaining(['genres', 'runtime', 'seasons', 'cast', 'trailer']),
+    });
+    expect(schemas.ListItem).toMatchObject({
+      required: expect.arrayContaining([
+        'id',
+        'title',
+        'status',
+        'addedBy',
+        'addedAt',
+        'updatedAt',
+        'ratingAverage',
+        'ratingCount',
+      ]),
+    });
+    for (const name of ['ListItemPage', 'TitleSearchPage']) {
+      expect(schemas[name], name).toMatchObject({
+        required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+      });
+    }
+  });
+});
+
 describe('GET /docs (Swagger UI)', () => {
   it('responde 200 com o HTML do Swagger UI', async () => {
     const res = await request(testApp()).get('/docs');
