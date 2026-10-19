@@ -13,6 +13,8 @@ const SEED_E2E_EMAIL = 'e2e@maratonei.local';
 const SEED_E2E_NAME = 'Usuário E2E';
 const SEED_LIST_NAME = 'Maratona de exemplo';
 const SEED_LIST_DESCRIPTION = 'Lista de exemplo criada pelo seed de desenvolvimento.';
+const SEED_RATING_STARS = 4;
+const SEED_COMMENT = 'Ótimo para a próxima maratona!';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
 
 // Títulos de exemplo (dados estáticos: o seed nunca chama o TMDB).
@@ -131,11 +133,33 @@ async function main(): Promise<void> {
           update: {},
           select: { id: true },
         });
-        await tx.listItem.upsert({
+        const item = await tx.listItem.upsert({
           where: { listId_titleId: { listId: list.id, titleId: row.id } },
           create: { listId: list.id, titleId: row.id, addedById: user.id, status },
           update: {},
+          select: { id: true },
         });
+        // Nota e comentário de exemplo só no primeiro título (idempotente).
+        if (title.tmdbId === SEED_TITLES[0]?.tmdbId) {
+          const member = await tx.listMember.findUniqueOrThrow({
+            where: { listId_userId: { listId: list.id, userId: user.id } },
+            select: { id: true },
+          });
+          await tx.rating.upsert({
+            where: { listItemId_memberId: { listItemId: item.id, memberId: member.id } },
+            create: { listItemId: item.id, memberId: member.id, stars: SEED_RATING_STARS },
+            update: {},
+          });
+          const hasComment = await tx.comment.findFirst({
+            where: { listItemId: item.id, memberId: member.id, body: SEED_COMMENT },
+            select: { id: true },
+          });
+          if (!hasComment) {
+            await tx.comment.create({
+              data: { listItemId: item.id, memberId: member.id, body: SEED_COMMENT },
+            });
+          }
+        }
       }
 
       const credential = await tx.account.findFirst({
@@ -159,7 +183,7 @@ async function main(): Promise<void> {
     });
 
     console.log(
-      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo e dois itens.`,
+      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo, dois itens, uma nota e um comentário.`,
     );
   } finally {
     await prisma.$disconnect();

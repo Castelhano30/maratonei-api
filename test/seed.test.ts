@@ -59,6 +59,13 @@ describe('prisma/seed.ts', () => {
     expect(items[0]?.title.seasons).toHaveLength(3);
     expect(items.every((item) => item.addedById === user?.id)).toBe(true);
     expect(await prisma.title.count()).toBe(2);
+
+    // Uma nota e um comentário do dono no primeiro título, sem duplicar.
+    const ratings = await prisma.rating.findMany({
+      include: { listItem: { include: { title: true } } },
+    });
+    expect(ratings.map((r) => [r.listItem.title.name, r.stars])).toEqual([['Duna', 4]]);
+    expect(await prisma.comment.count()).toBe(1);
   });
 
   it('recusa rodar com NODE_ENV=production', async () => {
