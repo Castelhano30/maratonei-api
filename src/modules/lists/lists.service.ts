@@ -72,7 +72,7 @@ export async function listListsOf(
       orderBy: [{ updatedAt: direction }, { id: direction }],
       ...pageArgs(params),
       include: {
-        _count: { select: { members: true } },
+        _count: { select: { members: true, items: true } },
         members: { where: { userId }, select: { role: true } },
       },
     }),
@@ -84,8 +84,7 @@ export async function listListsOf(
     description: list.description,
     role: list.members[0]?.role ?? 'MEMBER',
     memberCount: list._count.members,
-    // Os itens chegam na Fase 3.
-    itemCount: 0,
+    itemCount: list._count.items,
     createdAt: list.createdAt.toISOString(),
     updatedAt: list.updatedAt.toISOString(),
   }));

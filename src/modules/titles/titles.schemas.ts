@@ -40,12 +40,18 @@ export const SeasonSummary = z
   .object({ season: z.number().int().min(1), episodeCount: z.number().int().min(0) })
   .openapi('SeasonSummary');
 
-export const TitleDetail = TitleSummary.extend({
-  genres: z.array(Genre),
-  runtime: z.number().int().nullable().openapi({ description: 'Minutos (filmes).' }),
-  seasons: z.array(SeasonSummary).nullable().openapi({ description: 'Séries; `null` em filmes.' }),
-  cast: z.array(CastMember).openapi({ description: 'Elenco principal (até 10).' }),
-  trailer: Trailer.nullable(),
-}).openapi('TitleDetail');
+export const TitleDetail = z
+  .object({
+    ...TitleSummary.shape,
+    genres: z.array(Genre),
+    runtime: z.number().int().nullable().openapi({ description: 'Minutos (filmes).' }),
+    seasons: z
+      .array(SeasonSummary)
+      .nullable()
+      .openapi({ description: 'Séries; `null` em filmes.' }),
+    cast: z.array(CastMember).openapi({ description: 'Elenco principal (até 10).' }),
+    trailer: Trailer.nullable(),
+  })
+  .openapi('TitleDetail');
 
 export type TitleDetail = z.infer<typeof TitleDetail>;

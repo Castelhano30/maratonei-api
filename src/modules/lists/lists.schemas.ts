@@ -36,7 +36,7 @@ export const ListSummary = z
     description: z.string().nullable(),
     role: ListRole,
     memberCount: z.number().int().min(1),
-    itemCount: z.number().int().min(0).openapi({ description: '0 até a Fase 3.' }),
+    itemCount: z.number().int().min(0).openapi({ description: 'Total de títulos na lista.' }),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

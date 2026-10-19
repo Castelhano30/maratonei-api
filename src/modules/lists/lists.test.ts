@@ -6,6 +6,7 @@ import { testApp } from '../../../test/helpers/app.js';
 import { allowedOrigin, asUser } from '../../../test/helpers/as-user.js';
 import { listScenario } from '../../../test/helpers/list-scenario.js';
 import { createInvite, createList, createMembership } from '../../../test/factories/list.js';
+import { createListItem } from '../../../test/factories/item.js';
 import { createUser } from '../../../test/factories/user.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -99,10 +100,13 @@ describe('POST /lists (CAP-7)', () => {
 });
 
 describe('GET /lists (CAP-7)', () => {
-  it('lista só as listas do usuário, com papel, contagem de membros e itemCount 0', async () => {
+  it('lista só as listas do usuário, com papel, contagem de membros e itemCount real', async () => {
     const s = await listScenario();
     await createList(); // lista alheia
     const other = await createList({ owner: s.outsider.user });
+    await createListItem(s.list);
+    await createListItem(s.list);
+    await createListItem(other); // item de outra lista não conta
 
     const res = await s.editor.get('/api/v1/lists');
 
@@ -115,7 +119,7 @@ describe('GET /lists (CAP-7)', () => {
         description: null,
         role: 'EDITOR',
         memberCount: 3,
-        itemCount: 0,
+        itemCount: 2,
         createdAt: s.list.createdAt.toISOString(),
         updatedAt: s.list.updatedAt.toISOString(),
       },

@@ -9,6 +9,7 @@ import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
 import { healthRouter } from './modules/health/index.js';
 import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
+import { itemsRouter } from './modules/items/index.js';
 import { listsRouter } from './modules/lists/index.js';
 import { membersRouter } from './modules/members/index.js';
 import { titlesRouter } from './modules/titles/index.js';
@@ -49,6 +50,7 @@ export function createApp(options: AppOptions = {}): Express {
   api.use('/health', healthRouter);
   api.use('/me', meRouter);
   api.use('/lists', listsRouter);
+  api.use('/lists/:listId/items', itemsRouter);
   api.use('/lists/:listId/members', membersRouter);
   api.use('/lists/:listId/invite', listInviteRouter);
   api.use('/invites', invitesRouter);
