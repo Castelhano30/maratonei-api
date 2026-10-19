@@ -126,6 +126,8 @@ model ListMember {
   joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
   list     List     @relation(fields: [listId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ratings  Rating[]
+  comments Comment[]
 
   @@unique([listId, userId])
   @@index([userId])
@@ -201,6 +203,8 @@ model ListItem {
   list      List       @relation(fields: [listId], references: [id], onDelete: Cascade)
   title     Title      @relation(fields: [titleId], references: [id], onDelete: Restrict)
   addedBy   User?      @relation(fields: [addedById], references: [id], onDelete: SetNull)
+  ratings   Rating[]
+  comments  Comment[]
 
   @@unique([listId, titleId])
   @@index([listId, addedAt])
@@ -208,4 +212,41 @@ model ListItem {
   @@index([titleId])
   @@index([addedById])
   @@map("list_item")
+}
+
+// ---------------------------------------------------------------------------
+// Avaliações e comentários (módulos `ratings` e `comments`, Fase 4a).
+// Autoria por `ListMember` (não por usuário): sair da lista ou ser removido
+// apaga as notas e os comentários do membro (cascata). O check `stars BETWEEN
+// 1 AND 5` vive só na migration: o Prisma não o expressa.
+// ---------------------------------------------------------------------------
+
+model Rating {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  listItemId String     @map("list_item_id") @db.Uuid
+  memberId   String     @map("member_id") @db.Uuid
+  stars      Int
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  listItem   ListItem   @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  member     ListMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([listItemId, memberId])
+  @@index([memberId])
+  @@map("rating")
+}
+
+model Comment {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  listItemId String     @map("list_item_id") @db.Uuid
+  memberId   String     @map("member_id") @db.Uuid
+  body       String
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  listItem   ListItem   @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  member     ListMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([listItemId, createdAt])
+  @@index([memberId])
+  @@map("comment")
 }
