@@ -13,6 +13,7 @@ import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
 import { itemsRouter } from './modules/items/index.js';
 import { listsRouter } from './modules/lists/index.js';
 import { membersRouter } from './modules/members/index.js';
+import { progressRouter } from './modules/progress/index.js';
 import { ratingsRouter } from './modules/ratings/index.js';
 import { titlesRouter } from './modules/titles/index.js';
 import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/openapi.routes.js';
@@ -54,6 +55,7 @@ export function createApp(options: AppOptions = {}): Express {
   api.use('/lists', listsRouter);
   api.use('/lists/:listId/items/:itemId/ratings', ratingsRouter);
   api.use('/lists/:listId/items/:itemId/comments', commentsRouter);
+  api.use('/lists/:listId/items/:itemId/progress', progressRouter);
   api.use('/lists/:listId/items', itemsRouter);
   api.use('/lists/:listId/members', membersRouter);
   api.use('/lists/:listId/invite', listInviteRouter);

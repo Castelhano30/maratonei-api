@@ -14,6 +14,10 @@ const SEED_E2E_NAME = 'Usuário E2E';
 const SEED_LIST_NAME = 'Maratona de exemplo';
 const SEED_LIST_DESCRIPTION = 'Lista de exemplo criada pelo seed de desenvolvimento.';
 const SEED_RATING_STARS = 4;
+const SEED_PROGRESS_EPISODES = [
+  { season: 1, episode: 1 },
+  { season: 1, episode: 2 },
+];
 const SEED_COMMENT = 'Ótimo para a próxima maratona!';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
 
@@ -162,6 +166,37 @@ async function main(): Promise<void> {
         }
       }
 
+      // Progresso de exemplo na série (idempotente).
+      const series = SEED_TITLES.find((t) => t.mediaType === 'TV');
+      if (series) {
+        const seriesRow = await tx.title.findUniqueOrThrow({
+          where: { mediaType_tmdbId: { mediaType: 'TV', tmdbId: series.tmdbId } },
+          select: { id: true },
+        });
+        const seriesItem = await tx.listItem.findUniqueOrThrow({
+          where: { listId_titleId: { listId: list.id, titleId: seriesRow.id } },
+          select: { id: true },
+        });
+        const member = await tx.listMember.findUniqueOrThrow({
+          where: { listId_userId: { listId: list.id, userId: user.id } },
+          select: { id: true },
+        });
+        for (const { season, episode } of SEED_PROGRESS_EPISODES) {
+          await tx.episodeProgress.upsert({
+            where: {
+              listItemId_memberId_season_episode: {
+                listItemId: seriesItem.id,
+                memberId: member.id,
+                season,
+                episode,
+              },
+            },
+            create: { listItemId: seriesItem.id, memberId: member.id, season, episode },
+            update: {},
+          });
+        }
+      }
+
       const credential = await tx.account.findFirst({
         where: { userId: user.id, providerId: 'credential' },
       });
@@ -183,7 +218,7 @@ async function main(): Promise<void> {
     });
 
     console.log(
-      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo, dois itens, uma nota e um comentário.`,
+      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo, dois itens, uma nota, um comentário e dois episódios assistidos.`,
     );
   } finally {
     await prisma.$disconnect();

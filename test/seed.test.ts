@@ -66,6 +66,16 @@ describe('prisma/seed.ts', () => {
     });
     expect(ratings.map((r) => [r.listItem.title.name, r.stars])).toEqual([['Duna', 4]]);
     expect(await prisma.comment.count()).toBe(1);
+
+    // Dois episódios assistidos pelo dono na série, sem duplicar.
+    const progress = await prisma.episodeProgress.findMany({
+      include: { listItem: { include: { title: true } } },
+      orderBy: [{ season: 'asc' }, { episode: 'asc' }],
+    });
+    expect(progress.map((p) => [p.listItem.title.name, p.season, p.episode])).toEqual([
+      ['Dark', 1, 1],
+      ['Dark', 1, 2],
+    ]);
   });
 
   it('recusa rodar com NODE_ENV=production', async () => {
