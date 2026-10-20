@@ -22,6 +22,9 @@ export const SEASON_MEMORY_TTL_MS = 60 * 60 * 1000;
 export const PROVIDERS_MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
 
 const memory = new Map<string, { at: number; detail: TmdbTitleDetail }>();
+/** Acima deste tamanho, cada gravação descarta as entradas vencidas do cache. */
+const CACHE_SWEEP_SIZE = 500;
+
 const seasonMemory = new Map<string, { at: number; value: TmdbSeasonDetail }>();
 const providersMemory = new Map<string, { at: number; value: TmdbProviders }>();
 
@@ -42,6 +45,9 @@ async function cached<T>(
   const hit = store.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.value;
   const value = await load();
+  if (store.size >= CACHE_SWEEP_SIZE) {
+    for (const [k, entry] of store) if (Date.now() - entry.at >= ttlMs) store.delete(k);
+  }
   store.set(key, { at: Date.now(), value });
   return value;
 }

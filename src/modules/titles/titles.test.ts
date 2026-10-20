@@ -13,7 +13,7 @@ import {
 } from '../../../test/fakes/tmdb-client.js';
 import { createTitle } from '../../../test/factories/title.js';
 import { clearTitleCache, ensureTitle, TITLE_CACHE_TTL_MS } from './index.js';
-import { PROVIDERS_MEMORY_TTL_MS } from './titles.service.js';
+import { PROVIDERS_MEMORY_TTL_MS, SEASON_MEMORY_TTL_MS } from './titles.service.js';
 
 describe('sem sessão (401 UNAUTHENTICATED)', () => {
   it.each(['/api/v1/titles/search?q=duna', '/api/v1/titles/MOVIE/1'])('GET %s', async (path) => {
@@ -217,6 +217,25 @@ describe('GET /titles/TV/:tmdbId/seasons/:season (CAP-18)', () => {
     await agent.get('/api/v1/titles/TV/70523/seasons/1').expect(200);
     expect(fakeTmdb.getSeasonCalls).toHaveLength(1);
     expect(await prisma.title.count()).toBe(0);
+  });
+
+  it('refaz a consulta da temporada depois de 1 h', async () => {
+    fakeTmdb.addSeason(70523, seasonDetail(1, 3));
+    const agent = await asUser();
+    const now = Date.now();
+    const spy = vi.spyOn(Date, 'now');
+    try {
+      spy.mockReturnValue(now);
+      await agent.get('/api/v1/titles/TV/70523/seasons/1').expect(200);
+      spy.mockReturnValue(now + SEASON_MEMORY_TTL_MS - 1000);
+      await agent.get('/api/v1/titles/TV/70523/seasons/1').expect(200);
+      expect(fakeTmdb.getSeasonCalls).toHaveLength(1);
+      spy.mockReturnValue(now + SEASON_MEMORY_TTL_MS + 1000);
+      await agent.get('/api/v1/titles/TV/70523/seasons/1').expect(200);
+      expect(fakeTmdb.getSeasonCalls).toHaveLength(2);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('temporada inexistente → 404 TITLE_NOT_FOUND', async () => {

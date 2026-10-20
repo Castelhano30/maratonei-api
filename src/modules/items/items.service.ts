@@ -78,13 +78,10 @@ export async function randomItem(
   };
   const total = await prisma.listItem.count({ where });
   if (total === 0) return { data: null };
-  const row = await prisma.listItem.findFirst({
-    where,
-    orderBy: { id: 'asc' },
-    skip: Math.floor(Math.random() * total),
-    include: itemInclude,
-  });
-  // O item pode ter saído entre a contagem e a busca.
+  const pick = (skip: number) =>
+    prisma.listItem.findFirst({ where, orderBy: { id: 'asc' }, skip, include: itemInclude });
+  // Itens podem ter saído entre a contagem e a busca: sem resultado, tenta o primeiro.
+  const row = (await pick(Math.floor(Math.random() * total))) ?? (await pick(0));
   if (!row) return { data: null };
   return { data: toListItem(row, await statsOf(row.id)) };
 }
