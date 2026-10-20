@@ -4,6 +4,7 @@ import type { Logger } from 'pino';
 import { config as defaultConfig, type Config } from './config.js';
 import { errorHandler, routeNotFound } from './http/error-handler.js';
 import { createHttpLogger, createLogger } from './http/logger.js';
+import { createLimiter, RATE_LIMIT_WINDOW_MS, type RateLimitOptions } from './http/rate-limit.js';
 import { originCheck } from './http/origin-check.js';
 import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
@@ -21,6 +22,17 @@ import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/open
 export interface AppOptions {
   config?: Pick<Config, 'ALLOWED_ORIGINS' | 'LOG_LEVEL'>;
   logger?: Logger;
+  /** Limites de taxa. Padrão: da config; desligados com NODE_ENV=test. */
+  rateLimit?: RateLimitOptions;
+}
+
+function defaultRateLimit(): RateLimitOptions {
+  if (defaultConfig.NODE_ENV === 'test') return {};
+  const limiter = (limit: number) =>
+    limit > 0 ? { limit, windowMs: RATE_LIMIT_WINDOW_MS } : undefined;
+  const global = limiter(defaultConfig.RATE_LIMIT_GLOBAL_PER_MIN);
+  const titles = limiter(defaultConfig.RATE_LIMIT_TITLES_PER_MIN);
+  return { ...(global ? { global } : {}), ...(titles ? { titles } : {}) };
 }
 
 export const API_PREFIX = '/api/v1';
@@ -33,9 +45,11 @@ export function createApp(options: AppOptions = {}): Express {
   const config = options.config ?? defaultConfig;
   const logger = options.logger ?? createLogger(config);
 
+  const rateLimit = options.rateLimit ?? defaultRateLimit();
+
   const app = express();
-  // Nenhuma URL é derivada de Host/X-Forwarded-*; `trust proxy` fica desligado até
-  // as medições da Fase 0 (IP real atrás do rewrite).
+  // Nenhuma URL é derivada de Host/X-Forwarded-*; `trust proxy` só serve ao IP do rate limit.
+  if (defaultConfig.TRUST_PROXY > 0) app.set('trust proxy', defaultConfig.TRUST_PROXY);
 
   app.use(helmet());
   app.use(createHttpLogger(logger));
@@ -51,6 +65,7 @@ export function createApp(options: AppOptions = {}): Express {
 
   const api = express.Router();
   api.use('/health', healthRouter);
+  if (rateLimit.global) api.use(createLimiter(rateLimit.global));
   api.use('/me', meRouter);
   api.use('/lists', listsRouter);
   api.use('/lists/:listId/items/:itemId/ratings', ratingsRouter);
@@ -60,6 +75,7 @@ export function createApp(options: AppOptions = {}): Express {
   api.use('/lists/:listId/members', membersRouter);
   api.use('/lists/:listId/invite', listInviteRouter);
   api.use('/invites', invitesRouter);
+  if (rateLimit.titles) api.use('/titles', createLimiter(rateLimit.titles));
   api.use('/titles', titlesRouter);
   api.use(createOpenApiRouter());
   app.use(API_PREFIX, api);

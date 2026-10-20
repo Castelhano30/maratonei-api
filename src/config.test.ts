@@ -34,6 +34,11 @@ describe('parseConfig (AD-16)', () => {
       BETTER_AUTH_SECRET: validEnv.BETTER_AUTH_SECRET,
       EMAIL_TRANSPORT: 'console',
       MAX_LIST_MEMBERS: 100,
+      RATE_LIMIT_GLOBAL_PER_MIN: 300,
+      RATE_LIMIT_TITLES_PER_MIN: 60,
+      TRUST_PROXY: 0,
+      DB_CONNECTION_TIMEOUT_MS: 5000,
+      DB_STATEMENT_TIMEOUT_MS: 15000,
     });
   });
 

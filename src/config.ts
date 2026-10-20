@@ -92,6 +92,15 @@ export const EnvSchema = z
     EMAIL_TRANSPORT: z.enum(['console']).default('console'),
     // Teto técnico de membros por lista (aplicado só em `lists.addMember`).
     MAX_LIST_MEMBERS: z.coerce.number().int().min(1).default(100),
+    // Limites de requisições por IP/minuto (0 desliga). Nos testes o limitador fica desligado.
+    RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().min(0).default(300),
+    RATE_LIMIT_TITLES_PER_MIN: z.coerce.number().int().min(0).default(60),
+    // Saltos de proxy confiáveis para descobrir o IP real (0 = nenhum; 1 = Render/Vercel).
+    TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
+    // Pool do Postgres: espera máxima por conexão e tempo máximo por query (0 desliga o
+    // statement_timeout, para poolers que rejeitam o parâmetro de startup).
+    DB_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(100).default(5000),
+    DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).default(15000),
     // TMDB (opcional): sem chave, busca e detalhe respondem 503 TMDB_UNAVAILABLE.
     TMDB_API_KEY: z.string().trim().min(1).optional(),
     // Só para apontar ao TMDB fake; o padrão é a API oficial.
