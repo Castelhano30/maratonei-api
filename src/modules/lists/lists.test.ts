@@ -333,3 +333,29 @@ describe('integridade no banco', () => {
     expect(await prisma.invite.count({ where: { listId: list.id } })).toBe(3);
   });
 });
+
+describe('ListDetail.statusCounts', () => {
+  it('conta os itens por status, com 0 quando não há nenhum', async () => {
+    const s = await listScenario();
+    const outra = await createList();
+    await createListItem(s.list, { status: 'WANT' });
+    await createListItem(s.list, { status: 'WANT' });
+    await createListItem(s.list, { status: 'WATCHED' });
+    await createListItem(outra, { status: 'WATCHING' }); // item de outra lista não conta
+
+    const res = await s.member.get(`/api/v1/lists/${s.list.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.statusCounts).toEqual({ WANT: 2, WATCHING: 0, WATCHED: 1 });
+  });
+
+  it('lista vazia: tudo zero, também em POST e PATCH', async () => {
+    const agent = await asUser();
+    const created = await agent.post('/api/v1/lists').send({ name: 'Nova' });
+    expect(created.body.statusCounts).toEqual({ WANT: 0, WATCHING: 0, WATCHED: 0 });
+
+    await createListItem({ id: created.body.id }, { status: 'WATCHING' });
+    const patched = await agent.patch(`/api/v1/lists/${created.body.id}`).send({ name: 'Outra' });
+    expect(patched.body.statusCounts).toEqual({ WANT: 0, WATCHING: 1, WATCHED: 0 });
+  });
+});

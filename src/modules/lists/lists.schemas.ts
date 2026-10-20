@@ -44,6 +44,14 @@ export const ListSummary = z
 
 export const ListSummaryPage = pageOf(ListSummary).openapi('ListSummaryPage');
 
+export const StatusCounts = z
+  .object({
+    WANT: z.number().int().min(0),
+    WATCHING: z.number().int().min(0),
+    WATCHED: z.number().int().min(0),
+  })
+  .openapi('StatusCounts', { description: 'Itens da lista por status (0 quando vazio).' });
+
 export const ListDetail = z
   .object({
     id: z.uuid(),
@@ -51,6 +59,7 @@ export const ListDetail = z
     description: z.string().nullable(),
     ownerId: z.uuid(),
     role: ListRole.openapi({ description: 'Papel do usuário da sessão nesta lista.' }),
+    statusCounts: StatusCounts,
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

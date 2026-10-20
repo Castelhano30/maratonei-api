@@ -3,6 +3,7 @@ import { AppError } from '../../http/app-error.js';
 import { pageArgs, toPage, type Page, type PageParams } from '../../http/pagination.js';
 import type { ListRole } from '../../generated/prisma/client.js';
 import { prisma, type Prisma } from '../../lib/prisma.js';
+import { countItemsByStatus } from '../items/index.js';
 import type {
   CreateListBody,
   ListDetail,
@@ -23,6 +24,7 @@ function toDetail(
     updatedAt: Date;
   },
   role: ListRole,
+  statusCounts: ListDetail['statusCounts'],
 ): ListDetail {
   return {
     id: list.id,
@@ -30,6 +32,7 @@ function toDetail(
     description: list.description,
     ownerId: list.ownerId,
     role,
+    statusCounts,
     createdAt: list.createdAt.toISOString(),
     updatedAt: list.updatedAt.toISOString(),
   };
@@ -57,7 +60,7 @@ export async function createList(userId: string, body: CreateListBody): Promise<
       members: { create: { userId, role: 'OWNER' } },
     },
   });
-  return toDetail(list, 'OWNER');
+  return toDetail(list, 'OWNER', { WANT: 0, WATCHING: 0, WATCHED: 0 });
 }
 
 export async function listListsOf(
@@ -94,7 +97,7 @@ export async function listListsOf(
 export async function getList(listId: string, role: ListRole): Promise<ListDetail> {
   const list = await prisma.list.findUnique({ where: { id: listId } });
   if (!list) throw new AppError('LIST_NOT_FOUND');
-  return toDetail(list, role);
+  return toDetail(list, role, await countItemsByStatus(listId));
 }
 
 export async function updateList(
@@ -107,7 +110,7 @@ export async function updateList(
   const description = normalizeDescription(body.description);
   if (description !== undefined) data.description = description;
   const list = await prisma.list.update({ where: { id: listId }, data });
-  return toDetail(list, role);
+  return toDetail(list, role, await countItemsByStatus(listId));
 }
 
 /** Exclui a lista; membros e convite vão em cascata pelo banco. */

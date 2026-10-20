@@ -1,2 +1,7 @@
 export { itemsRouter } from './items.routes.js';
-export { getItemTitleRef, type ItemTitleRef } from './items.service.js';
+export {
+  countItemsByStatus,
+  getItemTitleRef,
+  type ItemTitleRef,
+  type StatusCounts,
+} from './items.service.js';
