@@ -21,7 +21,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "perf:check": "tsx scripts/perf-check.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -42,6 +43,7 @@
     "better-auth": "~1.7.7",
     "dotenv": "^18.0.6",
     "express": "~5.2.1",
+    "express-rate-limit": "^8.7.1",
     "helmet": "~8.3.0",
     "pino": "~10.4.0",
     "pino-http": "~11.0.0",
