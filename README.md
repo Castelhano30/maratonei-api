@@ -70,3 +70,16 @@ Sob `/api/v1/lists/:listId/items/:itemId` (qualquer membro; não membro recebe 4
   caracteres), `PATCH` e `DELETE comments/:commentId` (só o autor; de outro membro: 403 `NOT_OWN_RESOURCE`).
 - `ListItem.ratingAverage` (2 casas, `null` sem notas) e `ratingCount` vêm das notas reais.
 - Sair da lista, ser removido ou excluir o item apaga as notas e os comentários do membro (cascata).
+
+## Progresso, onde assistir e sorteio
+
+- Progresso de séries, sob `/api/v1/lists/:listId/items/:itemId/progress` (qualquer membro; filme → 400
+  `NOT_A_SERIES`): `GET` devolve um registro por membro (`current` = maior `(season, episode)` marcado,
+  `watchedCount`, `episodes`), `PUT` e `DELETE me/episodes/:season/:episode` marcam e desmarcam o episódio
+  do próprio membro (idempotentes). Não existe rota para escrever o progresso de outro membro, e marcar
+  episódios não altera o status coletivo do item. Temporada ou episódio fora de `Title.seasons` → 400
+  `VALIDATION_FAILED`. Sair da lista ou ser removido apaga o progresso (cascata).
+- `GET /api/v1/titles/TV/:tmdbId/seasons/:season`: episódios da temporada (cache em memória de 1 h).
+- `GET /api/v1/titles/:mediaType/:tmdbId/providers`: `{flatrate, rent, buy, link}` da região BR (cache em
+  memória de 24 h); sem dados BR, listas vazias e `link: null`. Nada disso é persistido no banco.
+- `GET /api/v1/lists/:listId/items/random?mediaType=`: sorteia um item `WANT`; sem pendentes, 200 com `{data: null}`.
