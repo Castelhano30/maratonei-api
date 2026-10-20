@@ -25,6 +25,9 @@ interface Doc {
  */
 const LIMITED_BY_MAX_LIST_MEMBERS = new Set(['listProgress', 'listRatings']);
 
+/** `Page<T>` de página única e fixa (primeira página do TMDB): não aceita `page` na query. */
+const FIXED_FIRST_PAGE = new Set(['getTitleRecommendations']);
+
 const PAGE_FIELDS = ['data', 'page', 'pageSize', 'total'];
 
 describe('paginação de toda coleção GET (NFR de desempenho)', () => {
@@ -78,6 +81,7 @@ describe('paginação de toda coleção GET (NFR de desempenho)', () => {
       const resolved = resolve(doc, schema);
       if (!isCollection(doc, schema)) continue;
       if (!PAGE_FIELDS.every((field) => field in (resolved?.properties ?? {}))) continue;
+      if (FIXED_FIRST_PAGE.has(operation.operationId ?? '')) continue;
       const names = (operation.parameters ?? []).map((p) => p.name);
       // A busca do TMDB tem pageSize fixo (20); só aceita `page`.
       expect(names, `${path}`).toContain('page');
