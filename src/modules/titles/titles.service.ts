@@ -25,6 +25,8 @@ export const PROVIDERS_MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
 export const NEGATIVE_TTL_MS = 5 * 60 * 1000;
 /** Acima deste tamanho, cada gravação descarta as entradas vencidas do cache. */
 const CACHE_SWEEP_SIZE = 500;
+/** Teto de entradas por cache em memória. */
+const CACHE_MAX_SIZE = 2000;
 
 type Entry<T> = { at: number; value: T } | { at: number; notFound: AppError };
 type Store<T> = Map<string, Entry<T>>;
@@ -93,6 +95,13 @@ function remember<T>(store: Store<T>, key: string, ttlMs: number, entry: Entry<T
   if (store.size >= CACHE_SWEEP_SIZE) {
     for (const [k, old] of store) if (!isFresh(old, ttlMs)) store.delete(k);
   }
+  // Teto duro: sem vencidas suficientes, descarta as mais antigas (ordem de inserção).
+  while (store.size >= CACHE_MAX_SIZE) {
+    const oldest = store.keys().next();
+    if (oldest.done) break;
+    store.delete(oldest.value);
+  }
+  store.delete(key);
   store.set(key, entry);
 }
 
