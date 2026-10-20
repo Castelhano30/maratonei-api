@@ -11,19 +11,40 @@ async function seriesOf(listId: string, itemId: string): Promise<ItemTitleRef> {
 }
 
 /** Episódio dentro de `Title.seasons`; sem `seasons` conhecido, qualquer inteiro positivo vale. */
-function assertEpisodeExists(ref: ItemTitleRef, season: number, episode: number): void {
-  if (!ref.seasons || ref.seasons.length === 0) return;
+function episodeProblem(
+  ref: ItemTitleRef,
+  season: number,
+  episode: number,
+): { field: 'season' | 'episode'; message: string } | null {
+  if (!ref.seasons || ref.seasons.length === 0) return null;
   const found = ref.seasons.find((s) => s.season === season);
-  if (!found) {
-    throw new AppError('VALIDATION_FAILED', {
-      errors: [{ field: 'season', message: 'A série não tem essa temporada.' }],
-    });
-  }
+  if (!found) return { field: 'season', message: 'A série não tem essa temporada.' };
   if (episode > found.episodeCount) {
-    throw new AppError('VALIDATION_FAILED', {
-      errors: [{ field: 'episode', message: 'A temporada não tem esse episódio.' }],
-    });
+    return { field: 'episode', message: 'A temporada não tem esse episódio.' };
   }
+  return null;
+}
+
+/**
+ * Rejeita episódio inexistente. A linha `Title` só se renova a cada 7 dias, então, antes de
+ * recusar, confere de novo contra o TMDB: um episódio recém-lançado não fica barrado.
+ */
+async function assertEpisodeExists(
+  ref: ItemTitleRef,
+  listId: string,
+  itemId: string,
+  season: number,
+  episode: number,
+): Promise<void> {
+  let problem = episodeProblem(ref, season, episode);
+  if (problem) {
+    problem = episodeProblem(
+      await getItemTitleRef(listId, itemId, { refresh: true }),
+      season,
+      episode,
+    );
+  }
+  if (problem) throw new AppError('VALIDATION_FAILED', { errors: [problem] });
 }
 
 /** Progresso de cada membro da lista, em ordem de entrada (RF-21..RF-23). */
@@ -69,7 +90,7 @@ export async function markEpisode(
   episode: number,
 ): Promise<WatchedEpisode> {
   const ref = await seriesOf(listId, itemId);
-  assertEpisodeExists(ref, season, episode);
+  await assertEpisodeExists(ref, listId, itemId, season, episode);
   const key = { listItemId: itemId, memberId, season, episode };
   let row;
   try {

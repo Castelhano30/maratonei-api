@@ -264,3 +264,15 @@ export async function ensureTitle(mediaType: TmdbMediaType, tmdbId: number): Pro
     throw error;
   }
 }
+
+/**
+ * Atualiza a linha `Title` agora, sem esperar o TTL (ex.: episódio recém-lançado).
+ * Usa o detalhe em cache de memória; com o TMDB fora ou o título removido, mantém a linha.
+ */
+export async function refreshTitle(mediaType: TmdbMediaType, tmdbId: number): Promise<void> {
+  try {
+    await saveTitle(await fetchDetail(mediaType, tmdbId));
+  } catch (error) {
+    if (!(error instanceof AppError)) throw error;
+  }
+}

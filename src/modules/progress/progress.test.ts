@@ -8,6 +8,8 @@ import { listScenario } from '../../../test/helpers/list-scenario.js';
 import { createListItem } from '../../../test/factories/item.js';
 import { createList } from '../../../test/factories/list.js';
 import { createEpisodeProgress } from '../../../test/factories/progress.js';
+import { fakeTmdb } from '../../../test/helpers/tmdb.js';
+import { tvDetail } from '../../../test/fakes/tmdb-client.js';
 
 const base = (listId: string, itemId: string) => `/api/v1/lists/${listId}/items/${itemId}/progress`;
 const episode = (listId: string, itemId: string, season: number | string, ep: number | string) =>
@@ -74,6 +76,43 @@ describe('PUT /progress/me/episodes/:season/:episode (CAP-18)', () => {
     expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
     expect(res.body.errors).toHaveLength(1);
     expect(await prisma.episodeProgress.count()).toBe(0);
+  });
+
+  it('episódio recém-lançado: atualiza a linha Title no TMDB antes de recusar', async () => {
+    const s = await listScenario();
+    const item = await createListItem(s.list, {
+      titleInput: { mediaType: 'TV', tmdbId: 70523, seasons: SEASONS },
+    });
+    fakeTmdb.add(
+      tvDetail({
+        seasons: [
+          { season: 1, episodeCount: 12 },
+          { season: 2, episodeCount: 8 },
+        ],
+      }),
+    );
+
+    const res = await s.member.put(episode(s.list.id, item.id, 1, 12));
+
+    expect(res.status).toBe(200);
+    const title = await prisma.title.findUniqueOrThrow({ where: { id: item.titleId } });
+    expect(title.seasons).toEqual([
+      { season: 1, episodeCount: 12 },
+      { season: 2, episodeCount: 8 },
+    ]);
+  });
+
+  it('episódio inexistente com o TMDB fora do ar continua recusado (400)', async () => {
+    const s = await listScenario();
+    const item = await createListItem(s.list, {
+      titleInput: { mediaType: 'TV', tmdbId: 70523, seasons: SEASONS },
+    });
+    fakeTmdb.setDown(true);
+
+    const res = await s.member.put(episode(s.list.id, item.id, 1, 12));
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
   it.each([

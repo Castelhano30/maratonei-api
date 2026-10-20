@@ -4,7 +4,7 @@ import { pageArgs, toPage, type Page } from '../../http/pagination.js';
 import type { ItemStatus } from '../../generated/prisma/client.js';
 import { prisma, Prisma } from '../../lib/prisma.js';
 import { ratingStatsByItem, type RatingStats } from '../ratings/index.js';
-import { ensureTitle, toTitleSummary } from '../titles/index.js';
+import { ensureTitle, refreshTitle, toTitleSummary } from '../titles/index.js';
 import type { AddItemBody, ItemsQuery, ListItem, RandomQuery } from './items.schemas.js';
 
 const itemInclude = {
@@ -122,8 +122,19 @@ function parseSeasons(value: unknown): ItemTitleRef['seasons'] {
   return parsed.success ? parsed.data : null;
 }
 
-/** Tipo, id do TMDB e temporadas do título do item (para o módulo `progress`). */
-export async function getItemTitleRef(listId: string, itemId: string): Promise<ItemTitleRef> {
+/**
+ * Tipo, id do TMDB e temporadas do título do item (para o módulo `progress`). Com `refresh`,
+ * atualiza antes a linha `Title` a partir do TMDB (falha do TMDB mantém o que está salvo).
+ */
+export async function getItemTitleRef(
+  listId: string,
+  itemId: string,
+  options: { refresh?: boolean } = {},
+): Promise<ItemTitleRef> {
+  if (options.refresh) {
+    const current = await getItemTitleRef(listId, itemId);
+    if (current.mediaType === 'TV') await refreshTitle(current.mediaType, current.tmdbId);
+  }
   const row = await prisma.listItem.findFirst({
     where: { id: itemId, listId },
     select: { title: { select: { mediaType: true, tmdbId: true, seasons: true } } },
