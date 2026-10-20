@@ -105,6 +105,19 @@ describe('PUT /progress/me/episodes/:season/:episode (CAP-18)', () => {
     expect(res.status).toBe(200);
   });
 
+  it.each([
+    ['objeto em vez de lista', { season: 1 }],
+    ['itens com tipos errados', [{ season: '1', episodeCount: 'dez' }]],
+    ['itens sem episodeCount', [{ season: 1 }]],
+  ])('seasons malformado (%s) é tratado como desconhecido', async (_name, bad) => {
+    const s = await listScenario();
+    const item = await seriesItem(s.list);
+    await prisma.title.update({ where: { id: item.titleId }, data: { seasons: bad } });
+    const res = await s.member.put(episode(s.list.id, item.id, 7, 42));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ season: 7, episode: 42 });
+  });
+
   it('marcações simultâneas do mesmo episódio não falham (idempotência sob concorrência)', async () => {
     const s = await listScenario();
     const item = await seriesItem(s.list);

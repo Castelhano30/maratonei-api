@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { AppError } from '../../http/app-error.js';
 import { pageArgs, toPage, type Page } from '../../http/pagination.js';
 import type { ItemStatus } from '../../generated/prisma/client.js';
@@ -26,6 +27,24 @@ function toListItem(row: ItemRow, stats: RatingStats = NO_RATINGS): ListItem {
     ratingAverage: stats.average,
     ratingCount: stats.count,
   };
+}
+
+export interface StatusCounts {
+  WANT: number;
+  WATCHING: number;
+  WATCHED: number;
+}
+
+/** Itens da lista por status (0 quando vazio); alimenta as abas da lista. */
+export async function countItemsByStatus(listId: string): Promise<StatusCounts> {
+  const groups = await prisma.listItem.groupBy({
+    by: ['status'],
+    where: { listId },
+    _count: { _all: true },
+  });
+  const counts: StatusCounts = { WANT: 0, WATCHING: 0, WATCHED: 0 };
+  for (const group of groups) counts[group.status] = group._count._all;
+  return counts;
 }
 
 async function statsOf(itemId: string): Promise<RatingStats> {
@@ -93,6 +112,16 @@ export interface ItemTitleRef {
   seasons: { season: number; episodeCount: number }[] | null;
 }
 
+const SeasonsSchema = z.array(
+  z.object({ season: z.number().int().min(0), episodeCount: z.number().int().min(0) }),
+);
+
+/** `Title.seasons` é JSON livre no banco: formato inesperado conta como desconhecido (`null`). */
+function parseSeasons(value: unknown): ItemTitleRef['seasons'] {
+  const parsed = SeasonsSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 /** Tipo, id do TMDB e temporadas do título do item (para o módulo `progress`). */
 export async function getItemTitleRef(listId: string, itemId: string): Promise<ItemTitleRef> {
   const row = await prisma.listItem.findFirst({
@@ -104,8 +133,7 @@ export async function getItemTitleRef(listId: string, itemId: string): Promise<I
   return {
     mediaType,
     tmdbId,
-    seasons:
-      mediaType === 'TV' && Array.isArray(seasons) ? (seasons as ItemTitleRef['seasons']) : null,
+    seasons: mediaType === 'TV' ? parseSeasons(seasons) : null,
   };
 }
 
