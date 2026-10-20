@@ -111,9 +111,23 @@ export function createAuth(options: AuthOptions = {}) {
           // e-mail verificado) nada é criado: evita conta pendurada para pré-sequestro.
           before: (data, context) => {
             const path = context?.path ?? '';
-            return Promise.resolve(
-              data.emailVerified === true || path.startsWith('/sign-up') ? undefined : false,
-            );
+            if (!(data.emailVerified === true || path.startsWith('/sign-up'))) {
+              return Promise.resolve(false);
+            }
+            const name = typeof data.name === 'string' ? data.name.trim() : '';
+            if (path.startsWith('/sign-up')) {
+              if (name.length < 1 || name.length > NAME_MAX_LENGTH) {
+                throw new APIError('BAD_REQUEST', {
+                  code: 'INVALID_NAME',
+                  message: `O nome deve ter de 1 a ${NAME_MAX_LENGTH} caracteres.`,
+                });
+              }
+              return Promise.resolve({ data: { ...data, name } });
+            }
+            // Google: o nome vem do provedor; apara em vez de recusar o login.
+            return Promise.resolve({
+              data: { ...data, name: name.slice(0, NAME_MAX_LENGTH) || 'Usuário' },
+            });
           },
         },
         update: {
