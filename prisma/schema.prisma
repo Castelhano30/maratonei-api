@@ -119,15 +119,16 @@ model List {
 }
 
 model ListMember {
-  id       String   @id @default(uuid(7)) @db.Uuid
-  listId   String   @map("list_id") @db.Uuid
-  userId   String   @map("user_id") @db.Uuid
-  role     ListRole @default(MEMBER)
-  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
-  list     List     @relation(fields: [listId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ratings  Rating[]
-  comments Comment[]
+  id              String            @id @default(uuid(7)) @db.Uuid
+  listId          String            @map("list_id") @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  role            ListRole          @default(MEMBER)
+  joinedAt        DateTime          @default(now()) @map("joined_at") @db.Timestamptz(3)
+  list            List              @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ratings         Rating[]
+  comments        Comment[]
+  episodeProgress EpisodeProgress[]
 
   @@unique([listId, userId])
   @@index([userId])
@@ -193,18 +194,19 @@ model Title {
 }
 
 model ListItem {
-  id        String     @id @default(uuid(7)) @db.Uuid
-  listId    String     @map("list_id") @db.Uuid
-  titleId   String     @map("title_id") @db.Uuid
-  addedById String?    @map("added_by_id") @db.Uuid
-  status    ItemStatus @default(WANT)
-  addedAt   DateTime   @default(now()) @map("added_at") @db.Timestamptz(3)
-  updatedAt DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  list      List       @relation(fields: [listId], references: [id], onDelete: Cascade)
-  title     Title      @relation(fields: [titleId], references: [id], onDelete: Restrict)
-  addedBy   User?      @relation(fields: [addedById], references: [id], onDelete: SetNull)
-  ratings   Rating[]
-  comments  Comment[]
+  id              String            @id @default(uuid(7)) @db.Uuid
+  listId          String            @map("list_id") @db.Uuid
+  titleId         String            @map("title_id") @db.Uuid
+  addedById       String?           @map("added_by_id") @db.Uuid
+  status          ItemStatus        @default(WANT)
+  addedAt         DateTime          @default(now()) @map("added_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  list            List              @relation(fields: [listId], references: [id], onDelete: Cascade)
+  title           Title             @relation(fields: [titleId], references: [id], onDelete: Restrict)
+  addedBy         User?             @relation(fields: [addedById], references: [id], onDelete: SetNull)
+  ratings         Rating[]
+  comments        Comment[]
+  episodeProgress EpisodeProgress[]
 
   @@unique([listId, titleId])
   @@index([listId, addedAt])
@@ -249,4 +251,24 @@ model Comment {
   @@index([listItemId, createdAt])
   @@index([memberId])
   @@map("comment")
+}
+
+// ---------------------------------------------------------------------------
+// Progresso de séries (módulo `progress`). Autoria por `ListMember`: sair da
+// lista ou ser removido apaga o progresso por cascata.
+// ---------------------------------------------------------------------------
+
+model EpisodeProgress {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  listItemId String     @map("list_item_id") @db.Uuid
+  memberId   String     @map("member_id") @db.Uuid
+  season     Int
+  episode    Int
+  watchedAt  DateTime   @default(now()) @map("watched_at") @db.Timestamptz(3)
+  listItem   ListItem   @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  member     ListMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([listItemId, memberId, season, episode])
+  @@index([memberId])
+  @@map("episode_progress")
 }
