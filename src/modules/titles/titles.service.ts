@@ -6,6 +6,7 @@ import {
   getTmdb,
   type TmdbMediaType,
   type TmdbProviders,
+  type TmdbSearchPage,
   type TmdbSeasonDetail,
   type TmdbTitleDetail,
 } from '../../lib/tmdb/index.js';
@@ -15,6 +16,7 @@ import { SEARCH_PAGE_SIZE, type TitleDetail } from './titles.schemas.js';
 export const TITLE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Cache em memória do detalhe completo (elenco e trailer não persistem). */
 export const DETAIL_MEMORY_TTL_MS = 60 * 60 * 1000;
+export const RECOMMENDATIONS_MEMORY_TTL_MS = 60 * 60 * 1000;
 
 /** Cache em memória de uma temporada (episódios não persistem). */
 export const SEASON_MEMORY_TTL_MS = 60 * 60 * 1000;
@@ -32,6 +34,7 @@ type Entry<T> = { at: number; value: T } | { at: number; notFound: AppError };
 type Store<T> = Map<string, Entry<T>>;
 
 const memory: Store<TmdbTitleDetail> = new Map();
+const recommendationsMemory: Store<TmdbSearchPage> = new Map();
 const seasonMemory: Store<TmdbSeasonDetail> = new Map();
 const providersMemory: Store<TmdbProviders> = new Map();
 /** Chamadas ao TMDB em andamento, para que pedidos iguais compartilhem uma só. */
@@ -40,6 +43,7 @@ const inflight = new Map<Store<never>, Map<string, Promise<unknown>>>();
 /** Zera os caches em memória (testes). */
 export function clearTitleCache(): void {
   memory.clear();
+  recommendationsMemory.clear();
   seasonMemory.clear();
   providersMemory.clear();
   inflight.clear();
@@ -146,6 +150,28 @@ export async function searchTitles(query: string, page: number): Promise<Page<Ti
   return {
     data: result.results.map(toTitleSummary),
     page,
+    pageSize: SEARCH_PAGE_SIZE,
+    total: result.totalResults,
+  };
+}
+
+/** Filmes populares no Brasil; somente cache em memória, sem persistir títulos. */
+export async function getTitleRecommendations(): Promise<Page<TitleSummaryData>> {
+  const result = await cached(
+    recommendationsMemory,
+    'popular:pt-BR:BR:1',
+    RECOMMENDATIONS_MEMORY_TTL_MS,
+    async () => {
+      try {
+        return await getTmdb().getPopularMovies();
+      } catch {
+        throw new AppError('TMDB_UNAVAILABLE');
+      }
+    },
+  );
+  return {
+    data: result.results.map(toTitleSummary),
+    page: 1,
     pageSize: SEARCH_PAGE_SIZE,
     total: result.totalResults,
   };

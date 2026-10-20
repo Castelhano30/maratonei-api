@@ -3,12 +3,20 @@ import { AppError } from '../../http/app-error.js';
 import { setTmdbClient, type TmdbClient } from '../../lib/tmdb/index.js';
 import { fakeTmdb } from '../../../test/helpers/tmdb.js';
 import { providersDetail, seasonDetail, tvDetail } from '../../../test/fakes/tmdb-client.js';
-import { NEGATIVE_TTL_MS, getProviders, getSeason, getTitleDetail } from './titles.service.js';
+import {
+  NEGATIVE_TTL_MS,
+  RECOMMENDATIONS_MEMORY_TTL_MS,
+  getTitleRecommendations,
+  getProviders,
+  getSeason,
+  getTitleDetail,
+} from './titles.service.js';
 
 /** Cliente que demora para responder, para que as chamadas se sobreponham. */
 function slowClient(delayMs = 30): TmdbClient {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   return {
+    getPopularMovies: async () => (await wait(), fakeTmdb.getPopularMovies()),
     search: async (...args) => (await wait(), fakeTmdb.search(...args)),
     getTitle: async (...args) => (await wait(), fakeTmdb.getTitle(...args)),
     getSeason: async (...args) => (await wait(), fakeTmdb.getSeason(...args)),
@@ -21,6 +29,21 @@ afterEach(() => {
 });
 
 describe('deduplicação de chamadas ao TMDB', () => {
+  it('indicações deduplicam pedidos, expiram em 1 hora e não guardam falhas', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    setTmdbClient(slowClient());
+    await Promise.all(Array.from({ length: 8 }, () => getTitleRecommendations()));
+    expect(fakeTmdb.popularCalls).toHaveLength(1);
+    vi.setSystemTime(Date.now() + RECOMMENDATIONS_MEMORY_TTL_MS - 1);
+    await getTitleRecommendations();
+    expect(fakeTmdb.popularCalls).toHaveLength(1);
+    vi.setSystemTime(Date.now() + 2);
+    fakeTmdb.setDown(true);
+    await expect(getTitleRecommendations()).rejects.toMatchObject({ code: 'TMDB_UNAVAILABLE' });
+    fakeTmdb.setDown(false);
+    await getTitleRecommendations();
+    expect(fakeTmdb.popularCalls).toHaveLength(3);
+  });
   it('temporada: N pedidos simultâneos geram 1 chamada', async () => {
     fakeTmdb.addSeason(70523, seasonDetail(1, 3));
     setTmdbClient(slowClient());

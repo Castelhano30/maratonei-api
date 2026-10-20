@@ -16,10 +16,65 @@ import { clearTitleCache, ensureTitle, TITLE_CACHE_TTL_MS } from './index.js';
 import { PROVIDERS_MEMORY_TTL_MS, SEASON_MEMORY_TTL_MS } from './titles.service.js';
 
 describe('sem sessão (401 UNAUTHENTICATED)', () => {
-  it.each(['/api/v1/titles/search?q=duna', '/api/v1/titles/MOVIE/1'])('GET %s', async (path) => {
+  it.each([
+    '/api/v1/titles/recommendations',
+    '/api/v1/titles/search?q=duna',
+    '/api/v1/titles/MOVIE/1',
+  ])('GET %s', async (path) => {
     const res = await request(testApp()).get(path).set('Origin', allowedOrigin());
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({ code: 'UNAUTHENTICATED' });
+  });
+});
+
+describe('GET /titles/recommendations', () => {
+  it('retorna TitleSearchPage de filmes sem persistência, com cache compartilhado', async () => {
+    fakeTmdb.add(movieDetail(), tvDetail());
+    const agent = await asUser();
+    const result = await agent.get('/api/v1/titles/recommendations').expect(200);
+    expect(result.body).toEqual({
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      data: [
+        {
+          tmdbId: 438631,
+          mediaType: 'MOVIE',
+          name: 'Duna',
+          overview: 'Paul Atreides une forças com os Fremen.',
+          posterPath: '/duna.jpg',
+          releaseYear: 2021,
+          genreIds: [878, 12],
+        },
+      ],
+    });
+    await agent.get('/api/v1/titles/recommendations').expect(200);
+    expect(fakeTmdb.popularCalls).toHaveLength(1);
+    expect(await prisma.title.count()).toBe(0);
+  });
+
+  it('catálogo vazio e indisponibilidade têm respostas próprias', async () => {
+    const agent = await asUser();
+    const empty = await agent.get('/api/v1/titles/recommendations').expect(200);
+    expect(empty.body.data).toEqual([]);
+    clearTitleCache();
+    fakeTmdb.setDown(true);
+    const down = await agent.get('/api/v1/titles/recommendations').expect(503);
+    expect(down.body.code).toBe('TMDB_UNAVAILABLE');
+    setTmdbClient(unconfiguredTmdbClient);
+    const unconfigured = await agent.get('/api/v1/titles/recommendations').expect(503);
+    expect(unconfigured.body.code).toBe('TMDB_UNAVAILABLE');
+  });
+
+  it('publica a operação e o schema no contrato real', async () => {
+    const response = await request(testApp()).get('/api/v1/openapi.json').expect(200);
+    const operation = response.body.paths['/api/v1/titles/recommendations'].get;
+    expect(operation.operationId).toBe('getTitleRecommendations');
+    expect(operation.responses['200'].content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/TitleSearchPage',
+    );
+    expect(operation.responses).toHaveProperty('401');
+    expect(operation.responses).toHaveProperty('503');
   });
 });
 

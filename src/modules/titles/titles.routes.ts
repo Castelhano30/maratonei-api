@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { problemResponse } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
-import { getProviders, getSeason, getTitle, search } from './titles.controller.js';
+import { getProviders, getSeason, getTitle, recommendations, search } from './titles.controller.js';
 import {
   SearchQuery,
   SeasonDetail,
@@ -16,6 +16,24 @@ import {
 const unauthenticated = problemResponse('Sem sessão (`UNAUTHENTICATED`).');
 const invalid = problemResponse('Entrada inválida (`VALIDATION_FAILED`).');
 const unavailable = problemResponse('TMDB fora, sem chave ou sem cache (`TMDB_UNAVAILABLE`).');
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/titles/recommendations',
+  operationId: 'getTitleRecommendations',
+  tags: ['titles'],
+  summary: 'Filmes populares para a próxima sessão',
+  description:
+    'Primeira página do TMDB, em pt-BR/BR, sem conteúdo adulto. Cache em memória de 1 h.',
+  responses: {
+    200: {
+      description: 'Página de filmes populares.',
+      content: { 'application/json': { schema: TitleSearchPage } },
+    },
+    401: unauthenticated,
+    503: unavailable,
+  },
+});
 
 registry.registerPath({
   method: 'get',
@@ -95,6 +113,7 @@ registry.registerPath({
 });
 
 export const titlesRouter: Router = Router();
+titlesRouter.get('/recommendations', requireSession(), recommendations);
 titlesRouter.get('/search', requireSession(), search);
 titlesRouter.get('/TV/:tmdbId/seasons/:season', requireSession(), getSeason);
 titlesRouter.get('/:mediaType/:tmdbId/providers', requireSession(), getProviders);
