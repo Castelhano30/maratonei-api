@@ -3,7 +3,7 @@ import { requireListRole } from '../../http/access.js';
 import { problemResponse } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
-import { add, get, list, remove, setStatus } from './items.controller.js';
+import { add, get, list, random, remove, setStatus } from './items.controller.js';
 import {
   AddItemBody,
   ItemParams,
@@ -11,6 +11,8 @@ import {
   ListItem,
   ListItemPage,
   ListParams,
+  RandomItem,
+  RandomQuery,
   SetItemStatusBody,
 } from './items.schemas.js';
 
@@ -34,6 +36,25 @@ registry.registerPath({
     200: {
       description: 'Página de itens, mais recentes primeiro por padrão.',
       content: { 'application/json': { schema: ListItemPage } },
+    },
+    400: invalid,
+    401: unauthenticated,
+    404: notFound,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/lists/{listId}/items/random',
+  operationId: 'randomItem',
+  tags: ['items'],
+  summary: 'Sorteia um item pendente (`WANT`) da lista: "O que assistir hoje?" (MEMBER)',
+  description: 'Sem itens pendentes (do tipo pedido), responde 200 com `data: null`.',
+  request: { params: ListParams, query: RandomQuery },
+  responses: {
+    200: {
+      description: 'O item sorteado ou `null`.',
+      content: { 'application/json': { schema: RandomItem } },
     },
     400: invalid,
     401: unauthenticated,
@@ -126,12 +147,13 @@ registry.registerPath({
 });
 
 /**
- * Montado em `/lists/:listId/items`. Rotas estáticas (`/random`, Fase 5) entram
- * antes de `/:itemId`.
+ * Montado em `/lists/:listId/items`. Rotas estáticas (`/random`) entram antes de
+ * `/:itemId`.
  */
 export const itemsRouter: Router = Router({ mergeParams: true });
 itemsRouter.get('/', requireSession(), requireListRole('MEMBER'), list);
 itemsRouter.post('/', requireSession(), requireListRole('EDITOR'), add);
+itemsRouter.get('/random', requireSession(), requireListRole('MEMBER'), random);
 itemsRouter.get('/:itemId', requireSession(), requireListRole('MEMBER'), get);
 itemsRouter.put('/:itemId/status', requireSession(), requireListRole('MEMBER'), setStatus);
 itemsRouter.patch('/:itemId', requireSession(), requireListRole('MEMBER'), setStatus);

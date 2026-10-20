@@ -1,7 +1,14 @@
 import type { Request, RequestHandler } from 'express';
 import { AppError } from '../../http/app-error.js';
 import { validate } from '../../http/validate.js';
-import { AddItemBody, ItemParams, ItemsQuery, SetItemStatusBody } from './items.schemas.js';
+import {
+  AddItemBody,
+  ItemParams,
+  ItemsQuery,
+  ListParams,
+  RandomQuery,
+  SetItemStatusBody,
+} from './items.schemas.js';
 import * as service from './items.service.js';
 
 function membershipOf(req: Request) {
@@ -14,6 +21,12 @@ export const list: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
   const { query } = validate(req, { query: ItemsQuery });
   res.json(await service.listItems(listId, query));
+};
+
+export const random: RequestHandler = async (req, res) => {
+  const { listId } = membershipOf(req);
+  const { query } = validate(req, { params: ListParams, query: RandomQuery });
+  res.json(await service.randomItem(listId, query));
 };
 
 export const add: RequestHandler = async (req, res) => {

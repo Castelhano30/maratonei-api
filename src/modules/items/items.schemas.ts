@@ -18,6 +18,8 @@ export const ItemsQuery = PageQuery.extend({
   sort: z.enum(['addedAt:desc', 'addedAt:asc']).default('addedAt:desc'),
 });
 
+export const RandomQuery = z.object({ mediaType: MediaType.optional() });
+
 export const AddItemBody = z
   .object({ mediaType: MediaType, tmdbId: z.number().int().min(1).max(2_147_483_647) })
   .openapi('AddItemBody');
@@ -41,8 +43,17 @@ export const ListItem = z
   })
   .openapi('ListItem');
 
+export const RandomItem = z
+  .object({
+    data: ListItem.nullable().openapi({
+      description: 'Um item `WANT` sorteado; `null` quando não há nenhum pendente.',
+    }),
+  })
+  .openapi('RandomItem');
+
 export const ListItemPage = pageOf(ListItem).openapi('ListItemPage');
 
 export type ItemsQuery = z.output<typeof ItemsQuery>;
+export type RandomQuery = z.output<typeof RandomQuery>;
 export type AddItemBody = z.infer<typeof AddItemBody>;
 export type ListItem = z.infer<typeof ListItem>;
