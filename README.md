@@ -3,6 +3,97 @@
 API do Maratonei: listas compartilhadas de filmes e séries. Express 5 + Prisma 7 + PostgreSQL 17,
 contrato OpenAPI gerado dos schemas Zod.
 
+## Arquitetura
+
+```mermaid
+flowchart LR
+  Web["maratonei-web<br/>Next.js (Vercel)"] -- "rewrite /api/*" --> API
+  Mobile["app mobile<br/>(futuro)"] -.-> API
+  subgraph API["maratonei-api (Express 5)"]
+    direction TB
+    MW["helmet · pino-http · origin-check"] --> Auth["Better Auth<br/>/api/v1/auth/*"]
+    MW --> Rate["rate limit (global e /titles)"] --> Mods["módulos: lists · members · invites<br/>items · ratings · comments · progress · titles"]
+    Mods --> Err["error handler (problem+json)"]
+  end
+  Mods --> DB[("PostgreSQL 17<br/>Prisma 7 + adapter-pg")]
+  Auth --> DB
+  Mods --> TMDB["TMDB v3<br/>(cache em memória)"]
+```
+
+Cada módulo em `src/modules/<nome>` tem routes, controller, service e schemas Zod; módulos só se falam pelo
+`index.ts`. Os mesmos schemas validam as requisições e geram o OpenAPI (`/api/v1/openapi.json`, Swagger em `/docs`).
+
+### Decisões técnicas
+
+- **Contrato único:** Zod é a fonte da verdade; o web gera o cliente do OpenAPI. Mudanças são aditivas dentro de `/v1`.
+- **Erros:** sempre `application/problem+json` com `code` de um registro único (`src/http/error-codes.ts`); o cliente trata `code` como conjunto aberto.
+- **Autenticação:** Better Auth com cookie httpOnly; isolada em `modules/auth` para aceitar tokens no mobile depois.
+- **Autorização no servidor:** `requireListRole` em toda rota de lista; não membro recebe 404 (não revela a existência).
+- **TMDB:** cópia do título em `Title` (7 dias); temporadas, detalhe e provedores só em memória, com chamadas simultâneas
+  deduplicadas e cache negativo de 5 min para 404. Falha do TMDB não derruba a lista (serve a linha em cache).
+- **Banco:** Prisma 7 com adapter-pg; pool com `connectionTimeoutMillis` e `statement_timeout` configuráveis; banco fora vira 503 `DB_UNAVAILABLE`.
+- **Paginação:** toda coleção é `Page<T>`, exceto as limitadas por `MAX_LIST_MEMBERS` (progresso e notas), conferido por teste sobre o OpenAPI.
+
+## Limites e observabilidade
+
+- **Rate limit por IP** (`express-rate-limit`, memória): `RATE_LIMIT_GLOBAL_PER_MIN` (padrão 300, exceto `/health`) e
+  `RATE_LIMIT_TITLES_PER_MIN` (padrão 60, rotas que tocam o TMDB). Excesso → 429 `RATE_LIMITED` com `Retry-After`.
+  `0` desliga; com `NODE_ENV=test` ficam desligados. Atrás de proxy defina `TRUST_PROXY` (saltos confiáveis, 1 no Render)
+  para o IP real; com mais de uma instância o contador em memória não é compartilhado. Login, cadastro e reset têm o limite próprio do Better Auth.
+- **Logs:** pino estruturado com `requestId`; cookies, tokens de convite/reset e `code`/`state` do OAuth são mascarados.
+- **Liveness/readiness:** `GET /api/v1/health` (para o monitor externo) e `/health/ready` (checa o banco).
+
+## Desempenho (p95)
+
+`pnpm perf:check` semeia 200 itens, 3 membros, notas, comentários e progresso no banco local, mede cada rota principal
+contra a API em execução e remove os dados. Suba a API com os limites desligados
+(`RATE_LIMIT_GLOBAL_PER_MIN=0 RATE_LIMIT_TITLES_PER_MIN=0 pnpm dev`). Medição local (Postgres no Docker, 100 amostras por rota,
+mais 5 de aquecimento; rotas do TMDB fora, como no PRD):
+
+| Rota                                | p50 ms | p95 ms |
+| ----------------------------------- | ------ | ------ |
+| GET /health                         | 0.7    | 1.5    |
+| GET /me                             | 5.6    | 7.4    |
+| GET /lists                          | 7.2    | 8.7    |
+| GET /lists/:id                      | 8.4    | 11.7   |
+| GET /lists/:id/members              | 8.4    | 12.3   |
+| GET /lists/:id/items (pageSize 100) | 14.7   | 24.8   |
+| GET /lists/:id/items?status=WANT    | 10.3   | 13.8   |
+| GET /lists/:id/items/random         | 11.4   | 13.3   |
+| GET /items/:id/ratings              | 9.6    | 11.9   |
+| GET /items/:id/comments             | 9.6    | 12.1   |
+| GET /items/:id/progress             | 10.6   | 12.3   |
+
+Todas ficam abaixo de 500 ms. É medição local, sem rede nem cold start; repetir contra produção está nas pendências.
+
+## Backup
+
+O workflow `.github/workflows/backup.yml` roda `pg_dump` (formato custom) aos domingos e guarda o artefato por 30 dias; exige o
+secret `BACKUP_DATABASE_URL` (conexão direta, sem pooler). Para testar localmente contra o Postgres do Docker:
+
+```sh
+export BACKUP_DATABASE_URL=postgresql://maratonei:maratonei@localhost:5432/maratonei
+export PG_EXEC="docker exec -i maratonei-api-db-1"   # usa os binários do contêiner; omita se tiver o cliente instalado
+bash scripts/backup.sh maratonei.dump
+bash scripts/restore-check.sh maratonei.dump         # restaura num banco temporário e compara a contagem de cada tabela
+```
+
+## Rodar API e web juntos
+
+```sh
+# terminal 1: API (este repositório)
+docker compose up -d --wait && pnpm install && cp .env.example .env && pnpm db:generate && pnpm db:migrate && pnpm db:seed && pnpm dev
+# terminal 2: web (../maratonei-web) — o rewrite /api/* aponta para http://localhost:4000
+pnpm install && pnpm dev          # http://localhost:3000
+```
+
+Entre com `e2e@maratonei.local` (senha do seed em `.env.example`). O `WEB_ORIGIN` e o `ALLOWED_ORIGINS` da API devem conter `http://localhost:3000`.
+
+## Pendências de produção
+
+Dependem de deploy real e não foram tentadas: Render, Neon (pooler e `statement_timeout`), Resend e domínio, Vercel (rewrite, `Origin` e IP real),
+monitor externo na liveness, restore do backup a partir do banco de produção, p95 em produção e prints do README. Detalhes em `deferred-work.md`.
+
 ## Pré-requisitos
 
 - Node 24 (`.nvmrc`)
