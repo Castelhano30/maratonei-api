@@ -1,5 +1,5 @@
 import { AppError } from '../../http/app-error.js';
-import { prisma } from '../../lib/prisma.js';
+import { prisma, Prisma } from '../../lib/prisma.js';
 import { getItemTitleRef, type ItemTitleRef } from '../items/index.js';
 import type { ProgressList, WatchedEpisode } from './progress.schemas.js';
 
@@ -70,13 +70,28 @@ export async function markEpisode(
 ): Promise<WatchedEpisode> {
   const ref = await seriesOf(listId, itemId);
   assertEpisodeExists(ref, season, episode);
-  const row = await prisma.episodeProgress.upsert({
-    where: {
-      listItemId_memberId_season_episode: { listItemId: itemId, memberId, season, episode },
-    },
-    create: { listItemId: itemId, memberId, season, episode },
-    update: {},
-  });
+  const key = { listItemId: itemId, memberId, season, episode };
+  let row;
+  try {
+    row = await prisma.episodeProgress.upsert({
+      where: { listItemId_memberId_season_episode: key },
+      create: key,
+      update: {},
+    });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) throw error;
+    if (error.code === 'P2002') {
+      // Duas marcações simultâneas do mesmo episódio: a outra venceu o create.
+      row = await prisma.episodeProgress.findUniqueOrThrow({
+        where: { listItemId_memberId_season_episode: key },
+      });
+    } else if (error.code === 'P2003') {
+      // Membro ou item saiu entre a checagem de acesso e a gravação.
+      throw new AppError('LIST_NOT_FOUND');
+    } else {
+      throw error;
+    }
+  }
   return { season: row.season, episode: row.episode, watchedAt: row.watchedAt.toISOString() };
 }
 

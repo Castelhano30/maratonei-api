@@ -98,6 +98,23 @@ describe('PUT /progress/me/episodes/:season/:episode (CAP-18)', () => {
     expect(res.body).toMatchObject({ season: 7, episode: 42 });
   });
 
+  it('seasons vazio (`[]`) é tratado como desconhecido', async () => {
+    const s = await listScenario();
+    const item = await createListItem(s.list, { titleInput: { mediaType: 'TV', seasons: [] } });
+    const res = await s.member.put(episode(s.list.id, item.id, 3, 5));
+    expect(res.status).toBe(200);
+  });
+
+  it('marcações simultâneas do mesmo episódio não falham (idempotência sob concorrência)', async () => {
+    const s = await listScenario();
+    const item = await seriesItem(s.list);
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => s.member.put(episode(s.list.id, item.id, 1, 2))),
+    );
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(await prisma.episodeProgress.count({ where: { listItemId: item.id } })).toBe(1);
+  });
+
   it('filme → 400 NOT_A_SERIES', async () => {
     const s = await listScenario();
     const movie = await createListItem(s.list, { titleInput: { mediaType: 'MOVIE' } });
