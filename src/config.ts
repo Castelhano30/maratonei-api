@@ -95,6 +95,7 @@ export const EnvSchema = z
     // Limites de requisições por IP/minuto (0 desliga). Nos testes o limitador fica desligado.
     RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().min(0).default(300),
     RATE_LIMIT_TITLES_PER_MIN: z.coerce.number().int().min(0).default(60),
+    RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().min(0).default(30),
     // Saltos de proxy confiáveis para descobrir o IP real (0 = nenhum; 1 = Render/Vercel).
     TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
     // Pool do Postgres: espera máxima por conexão e tempo máximo por query (0 desliga o

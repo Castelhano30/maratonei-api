@@ -13,6 +13,8 @@ export interface RateLimitOptions {
   global?: LimiterOptions;
   /** Teto extra de `/titles/*`, as rotas que tocam o TMDB. */
   titles?: LimiterOptions;
+  /** Teto de escritas em `/auth/*` (login, cadastro, reset): barra força bruta por IP real. */
+  auth?: LimiterOptions;
 }
 
 export const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -29,4 +31,13 @@ export function createLimiter({ limit, windowMs }: LimiterOptions): RequestHandl
       next(new AppError('RATE_LIMITED', 'Muitas requisições; tente novamente em instantes.'));
     },
   });
+}
+
+/** Como `createLimiter`, mas só conta métodos que escrevem (leitura de sessão não gasta o teto). */
+export function createWriteLimiter(options: LimiterOptions): RequestHandler {
+  const limiter = createLimiter(options);
+  return (req, res, next) =>
+    req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS'
+      ? next()
+      : limiter(req, res, next);
 }

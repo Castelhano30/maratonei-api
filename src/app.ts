@@ -4,8 +4,14 @@ import type { Logger } from 'pino';
 import { config as defaultConfig, type Config } from './config.js';
 import { errorHandler, routeNotFound } from './http/error-handler.js';
 import { createHttpLogger, createLogger } from './http/logger.js';
-import { createLimiter, RATE_LIMIT_WINDOW_MS, type RateLimitOptions } from './http/rate-limit.js';
+import {
+  createLimiter,
+  createWriteLimiter,
+  RATE_LIMIT_WINDOW_MS,
+  type RateLimitOptions,
+} from './http/rate-limit.js';
 import { originCheck } from './http/origin-check.js';
+import { rejectNul } from './http/reject-nul.js';
 import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
 import { commentsRouter } from './modules/comments/index.js';
@@ -32,7 +38,12 @@ function defaultRateLimit(): RateLimitOptions {
     limit > 0 ? { limit, windowMs: RATE_LIMIT_WINDOW_MS } : undefined;
   const global = limiter(defaultConfig.RATE_LIMIT_GLOBAL_PER_MIN);
   const titles = limiter(defaultConfig.RATE_LIMIT_TITLES_PER_MIN);
-  return { ...(global ? { global } : {}), ...(titles ? { titles } : {}) };
+  const auth = limiter(defaultConfig.RATE_LIMIT_AUTH_PER_MIN);
+  return {
+    ...(global ? { global } : {}),
+    ...(titles ? { titles } : {}),
+    ...(auth ? { auth } : {}),
+  };
 }
 
 export const API_PREFIX = '/api/v1';
@@ -55,11 +66,15 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(createHttpLogger(logger));
   app.use(originCheck(config.ALLOWED_ORIGINS));
 
+  // O limite do Better Auth lê X-Forwarded-For do cliente (contornável); este usa o IP do Express.
+  if (rateLimit.auth) app.use(AUTH_BASE_PATH, createWriteLimiter(rateLimit.auth));
+
   // Better Auth: lê o corpo por conta própria, por isso entra antes do parser JSON (AD-6).
   app.all(`${AUTH_BASE_PATH}/*splat`, createAuthHandler());
 
   app.use(requireJson);
   app.use(express.json({ limit: '100kb' }));
+  app.use(rejectNul);
 
   app.use(DOCS_PATH, createDocsRouter());
 
