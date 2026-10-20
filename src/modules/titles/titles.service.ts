@@ -21,35 +21,79 @@ export const SEASON_MEMORY_TTL_MS = 60 * 60 * 1000;
 /** Cache em memória dos provedores de streaming (não persistem; regra 5). */
 export const PROVIDERS_MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
 
-const memory = new Map<string, { at: number; detail: TmdbTitleDetail }>();
+/** Cache negativo: título/temporada que o TMDB disse não existir (404). */
+export const NEGATIVE_TTL_MS = 5 * 60 * 1000;
 /** Acima deste tamanho, cada gravação descarta as entradas vencidas do cache. */
 const CACHE_SWEEP_SIZE = 500;
 
-const seasonMemory = new Map<string, { at: number; value: TmdbSeasonDetail }>();
-const providersMemory = new Map<string, { at: number; value: TmdbProviders }>();
+type Entry<T> = { at: number; value: T } | { at: number; notFound: AppError };
+type Store<T> = Map<string, Entry<T>>;
+
+const memory: Store<TmdbTitleDetail> = new Map();
+const seasonMemory: Store<TmdbSeasonDetail> = new Map();
+const providersMemory: Store<TmdbProviders> = new Map();
+/** Chamadas ao TMDB em andamento, para que pedidos iguais compartilhem uma só. */
+const inflight = new Map<Store<never>, Map<string, Promise<unknown>>>();
 
 /** Zera os caches em memória (testes). */
 export function clearTitleCache(): void {
   memory.clear();
   seasonMemory.clear();
   providersMemory.clear();
+  inflight.clear();
 }
 
-/** Valor em cache dentro do TTL ou o resultado de `load` (só sucesso é guardado). */
+function isFresh(entry: Entry<unknown>, ttlMs: number): boolean {
+  return Date.now() - entry.at < ('notFound' in entry ? NEGATIVE_TTL_MS : ttlMs);
+}
+
+/**
+ * Valor em cache dentro do TTL ou o resultado de `load`. Pedidos simultâneos à
+ * mesma chave compartilham uma única chamada. Só sucesso e 404 (`TITLE_NOT_FOUND`,
+ * por 5 min) ficam guardados; qualquer outra falha não é cacheada.
+ */
 async function cached<T>(
-  store: Map<string, { at: number; value: T }>,
+  store: Store<T>,
   key: string,
   ttlMs: number,
   load: () => Promise<T>,
 ): Promise<T> {
   const hit = store.get(key);
-  if (hit && Date.now() - hit.at < ttlMs) return hit.value;
-  const value = await load();
-  if (store.size >= CACHE_SWEEP_SIZE) {
-    for (const [k, entry] of store) if (Date.now() - entry.at >= ttlMs) store.delete(k);
+  if (hit && isFresh(hit, ttlMs)) {
+    if ('notFound' in hit) throw hit.notFound;
+    return hit.value;
   }
-  store.set(key, { at: Date.now(), value });
-  return value;
+  let pending = inflight.get(store as Store<never>);
+  if (!pending) {
+    pending = new Map();
+    inflight.set(store as Store<never>, pending);
+  }
+  const running = pending.get(key) as Promise<T> | undefined;
+  if (running) return running;
+
+  const promise = (async () => {
+    try {
+      const value = await load();
+      remember(store, key, ttlMs, { at: Date.now(), value });
+      return value;
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'TITLE_NOT_FOUND') {
+        remember(store, key, ttlMs, { at: Date.now(), notFound: error });
+      }
+      throw error;
+    } finally {
+      pending.delete(key);
+    }
+  })();
+  pending.set(key, promise);
+  return promise;
+}
+
+function remember<T>(store: Store<T>, key: string, ttlMs: number, entry: Entry<T>): void {
+  if (store.size >= CACHE_SWEEP_SIZE) {
+    for (const [k, old] of store) if (!isFresh(old, ttlMs)) store.delete(k);
+  }
+  store.set(key, entry);
 }
 
 /** Episódios de uma temporada (RF-21); temporada inexistente → 404 `TITLE_NOT_FOUND`. */
@@ -98,14 +142,11 @@ export async function searchTitles(query: string, page: number): Promise<Page<Ti
   };
 }
 
-/** Detalhe do TMDB, com cache em memória; grava a resposta fresca na linha `Title` se ela já existe. */
-async function fetchDetail(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail> {
-  const key = `${mediaType}:${tmdbId}`;
-  const hit = memory.get(key);
-  if (hit && Date.now() - hit.at < DETAIL_MEMORY_TTL_MS) return hit.detail;
-  const detail = await getTmdb().getTitle(mediaType, tmdbId);
-  memory.set(key, { at: Date.now(), detail });
-  return detail;
+/** Detalhe do TMDB, com cache em memória e chamadas simultâneas deduplicadas. */
+function fetchDetail(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail> {
+  return cached(memory, `${mediaType}:${tmdbId}`, DETAIL_MEMORY_TTL_MS, () =>
+    getTmdb().getTitle(mediaType, tmdbId),
+  );
 }
 
 function rowData(detail: TmdbTitleDetail) {

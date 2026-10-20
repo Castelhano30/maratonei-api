@@ -317,7 +317,7 @@ describe('GET /titles/:mediaType/:tmdbId/providers (CAP-19)', () => {
     expect(missing.status).toBe(404);
     expect(missing.body).toMatchObject({ code: 'TITLE_NOT_FOUND' });
     fakeTmdb.setDown(true);
-    const down = await agent.get('/api/v1/titles/MOVIE/999/providers');
+    const down = await agent.get('/api/v1/titles/MOVIE/998/providers');
     expect(down.status).toBe(503);
     expect(down.body).toMatchObject({ code: 'TMDB_UNAVAILABLE' });
   });
