@@ -89,6 +89,7 @@ export interface FakeTmdbClient extends TmdbClient {
   /** Faz toda chamada seguinte falhar com 503 `TMDB_UNAVAILABLE` (ou volta ao normal). */
   setDown(down: boolean): void;
   readonly searchCalls: { query: string; page: number }[];
+  readonly popularCalls: number[];
   readonly getTitleCalls: { mediaType: TmdbMediaType; tmdbId: number }[];
   readonly getSeasonCalls: { tmdbId: number; season: number }[];
   readonly getProvidersCalls: { mediaType: TmdbMediaType; tmdbId: number }[];
@@ -106,6 +107,7 @@ export function createFakeTmdb(): FakeTmdbClient {
   const catalog = new Map<string, TmdbTitleDetail>();
   let down = false;
   const searchCalls: { query: string; page: number }[] = [];
+  const popularCalls: number[] = [];
   const getTitleCalls: { mediaType: TmdbMediaType; tmdbId: number }[] = [];
   const getSeasonCalls: { tmdbId: number; season: number }[] = [];
   const getProvidersCalls: { mediaType: TmdbMediaType; tmdbId: number }[] = [];
@@ -123,6 +125,7 @@ export function createFakeTmdb(): FakeTmdbClient {
       down = value;
     },
     searchCalls,
+    popularCalls,
     getTitleCalls,
     getSeasonCalls,
     getProvidersCalls,
@@ -142,7 +145,18 @@ export function createFakeTmdb(): FakeTmdbClient {
       getProvidersCalls.length = 0;
       down = false;
       searchCalls.length = 0;
+      popularCalls.length = 0;
       getTitleCalls.length = 0;
+    },
+    getPopularMovies(): Promise<TmdbSearchPage> {
+      popularCalls.push(1);
+      if (down) return Promise.reject(unavailable());
+      const movies = [...catalog.values()].filter((title) => title.mediaType === 'MOVIE');
+      return Promise.resolve({
+        page: 1,
+        totalResults: movies.length,
+        results: movies.slice(0, 20),
+      });
     },
     search(query, page): Promise<TmdbSearchPage> {
       searchCalls.push({ query, page });

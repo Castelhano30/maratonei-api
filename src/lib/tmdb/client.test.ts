@@ -35,6 +35,67 @@ async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
   return undefined;
 }
 
+describe('createHttpTmdbClient.getPopularMovies', () => {
+  it('busca primeira página pt-BR/BR, exclui adultos e normaliza filmes', async () => {
+    tmdb.on('GET', '/movie/popular', () => ({
+      body: {
+        page: 1,
+        total_results: 40,
+        results: [
+          {
+            id: 1,
+            adult: false,
+            title: 'Duna',
+            overview: 'Areia.',
+            poster_path: '/d.jpg',
+            release_date: '2021-09-15',
+            genre_ids: [878],
+          },
+          { id: 2, adult: true, title: 'Adulto' },
+          { id: 3, adult: false, title: 'Sem dados' },
+          { id: 'inválido', adult: false },
+          { id: 4, title: 'Sem classificação' },
+        ],
+      },
+    }));
+    const result = await client().getPopularMovies();
+    const query = tmdb.requests[0]?.query;
+    expect(query?.get('language')).toBe('pt-BR');
+    expect(query?.get('region')).toBe('BR');
+    expect(query?.get('page')).toBe('1');
+    expect(query?.get('include_adult')).toBe('false');
+    expect(result).toEqual({
+      page: 1,
+      totalResults: 40,
+      results: [
+        {
+          tmdbId: 1,
+          mediaType: 'MOVIE',
+          name: 'Duna',
+          overview: 'Areia.',
+          posterPath: '/d.jpg',
+          releaseYear: 2021,
+          genreIds: [878],
+        },
+        {
+          tmdbId: 3,
+          mediaType: 'MOVIE',
+          name: 'Sem dados',
+          overview: '',
+          posterPath: null,
+          releaseYear: null,
+          genreIds: [],
+        },
+      ],
+    });
+  });
+
+  it('resposta inválida vira indisponibilidade', async () => {
+    tmdb.on('GET', '/movie/popular', () => ({ body: { results: [] } }));
+    expect(await codeOf(client().getPopularMovies())).toBe('TMDB_UNAVAILABLE');
+  });
+});
+
 describe('createHttpTmdbClient.search', () => {
   it('pede pt-BR com a chave, mantém só filmes e séries e normaliza os campos', async () => {
     tmdb.on('GET', '/search/multi', () => ({

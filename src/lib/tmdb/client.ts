@@ -47,6 +47,10 @@ const searchSchema = z.object({
   results: z.array(z.unknown()),
 });
 
+const popularMovieSchema = searchResultSchema.omit({ media_type: true }).extend({
+  adult: z.boolean(),
+});
+
 const detailSchema = z.object({
   id: z.number().int(),
   title: nullableString,
@@ -221,6 +225,29 @@ export function createHttpTmdbClient(options: HttpTmdbClientOptions): TmdbClient
   }
 
   return {
+    async getPopularMovies(): Promise<TmdbSearchPage> {
+      const body = parse(
+        searchSchema,
+        await request('/movie/popular', { page: '1', region: 'BR', include_adult: 'false' }),
+      );
+      const results: TmdbTitleSummary[] = [];
+      for (const raw of body.results) {
+        const item = popularMovieSchema.safeParse(raw);
+        if (!item.success || item.data.adult) continue;
+        const entry = item.data;
+        results.push({
+          tmdbId: entry.id,
+          mediaType: 'MOVIE',
+          name: entry.title ?? '',
+          overview: entry.overview ?? '',
+          posterPath: entry.poster_path ?? null,
+          releaseYear: yearOf(entry.release_date),
+          genreIds: entry.genre_ids ?? [],
+        });
+      }
+      return { page: body.page, totalResults: body.total_results, results };
+    },
+
     async search(query, page): Promise<TmdbSearchPage> {
       const body = parse(
         searchSchema,

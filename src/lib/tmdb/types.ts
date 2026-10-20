@@ -79,6 +79,7 @@ export interface TmdbProviders {
  * `TMDB_UNAVAILABLE` (sem chave, rede, timeout, 5xx, limite) e `TITLE_NOT_FOUND`.
  */
 export interface TmdbClient {
+  getPopularMovies(): Promise<TmdbSearchPage>;
   search(query: string, page: number): Promise<TmdbSearchPage>;
   getTitle(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail>;
   /** Temporada de uma série; inexistente → `TITLE_NOT_FOUND`. */

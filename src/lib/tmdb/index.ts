@@ -8,6 +8,7 @@ export type * from './types.js';
 
 /** Cliente de quando não há `TMDB_API_KEY`: toda chamada vira 503 `TMDB_UNAVAILABLE`. */
 export const unconfiguredTmdbClient: TmdbClient = {
+  getPopularMovies: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
   search: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
   getTitle: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
   getSeason: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
