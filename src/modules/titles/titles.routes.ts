@@ -2,8 +2,16 @@ import { Router } from 'express';
 import { problemResponse } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
-import { getTitle, search } from './titles.controller.js';
-import { SearchQuery, TitleDetail, TitleParams, TitleSearchPage } from './titles.schemas.js';
+import { getProviders, getSeason, getTitle, search } from './titles.controller.js';
+import {
+  SearchQuery,
+  SeasonDetail,
+  SeasonParams,
+  TitleDetail,
+  TitleParams,
+  TitleSearchPage,
+  WatchProviders,
+} from './titles.schemas.js';
 
 const unauthenticated = problemResponse('Sem sessão (`UNAUTHENTICATED`).');
 const invalid = problemResponse('Entrada inválida (`VALIDATION_FAILED`).');
@@ -45,6 +53,49 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/titles/{mediaType}/{tmdbId}/providers',
+  operationId: 'getTitleProviders',
+  tags: ['titles'],
+  summary: 'Onde assistir no Brasil: assinatura, aluguel e compra',
+  description:
+    'Região fixa BR. Sem dados para o Brasil, devolve listas vazias e `link: null`. Cache em memória de 24 h.',
+  request: { params: TitleParams },
+  responses: {
+    200: {
+      description: 'Provedores por modalidade.',
+      content: { 'application/json': { schema: WatchProviders } },
+    },
+    400: invalid,
+    401: unauthenticated,
+    404: problemResponse('O TMDB não conhece o título (`TITLE_NOT_FOUND`).'),
+    503: unavailable,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/titles/TV/{tmdbId}/seasons/{season}',
+  operationId: 'getTitleSeason',
+  tags: ['titles'],
+  summary: 'Episódios de uma temporada da série',
+  description: 'Cache em memória de 1 h; os episódios não são persistidos.',
+  request: { params: SeasonParams },
+  responses: {
+    200: {
+      description: 'A temporada e seus episódios.',
+      content: { 'application/json': { schema: SeasonDetail } },
+    },
+    400: invalid,
+    401: unauthenticated,
+    404: problemResponse('Série ou temporada desconhecida do TMDB (`TITLE_NOT_FOUND`).'),
+    503: unavailable,
+  },
+});
+
 export const titlesRouter: Router = Router();
 titlesRouter.get('/search', requireSession(), search);
+titlesRouter.get('/TV/:tmdbId/seasons/:season', requireSession(), getSeason);
+titlesRouter.get('/:mediaType/:tmdbId/providers', requireSession(), getProviders);
 titlesRouter.get('/:mediaType/:tmdbId', requireSession(), getTitle);

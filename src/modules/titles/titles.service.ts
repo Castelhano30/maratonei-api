@@ -2,7 +2,13 @@ import { AppError } from '../../http/app-error.js';
 import type { Page } from '../../http/pagination.js';
 import type { Title } from '../../generated/prisma/client.js';
 import { prisma, Prisma } from '../../lib/prisma.js';
-import { getTmdb, type TmdbMediaType, type TmdbTitleDetail } from '../../lib/tmdb/index.js';
+import {
+  getTmdb,
+  type TmdbMediaType,
+  type TmdbProviders,
+  type TmdbSeasonDetail,
+  type TmdbTitleDetail,
+} from '../../lib/tmdb/index.js';
 import { SEARCH_PAGE_SIZE, type TitleDetail } from './titles.schemas.js';
 
 /** Idade máxima da linha `Title` antes da atualização preguiçosa (RF-14, regra 5). */
@@ -10,11 +16,48 @@ export const TITLE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Cache em memória do detalhe completo (elenco e trailer não persistem). */
 export const DETAIL_MEMORY_TTL_MS = 60 * 60 * 1000;
 
-const memory = new Map<string, { at: number; detail: TmdbTitleDetail }>();
+/** Cache em memória de uma temporada (episódios não persistem). */
+export const SEASON_MEMORY_TTL_MS = 60 * 60 * 1000;
+/** Cache em memória dos provedores de streaming (não persistem; regra 5). */
+export const PROVIDERS_MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** Zera o cache em memória (testes). */
+const memory = new Map<string, { at: number; detail: TmdbTitleDetail }>();
+const seasonMemory = new Map<string, { at: number; value: TmdbSeasonDetail }>();
+const providersMemory = new Map<string, { at: number; value: TmdbProviders }>();
+
+/** Zera os caches em memória (testes). */
 export function clearTitleCache(): void {
   memory.clear();
+  seasonMemory.clear();
+  providersMemory.clear();
+}
+
+/** Valor em cache dentro do TTL ou o resultado de `load` (só sucesso é guardado). */
+async function cached<T>(
+  store: Map<string, { at: number; value: T }>,
+  key: string,
+  ttlMs: number,
+  load: () => Promise<T>,
+): Promise<T> {
+  const hit = store.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.value;
+  const value = await load();
+  store.set(key, { at: Date.now(), value });
+  return value;
+}
+
+/** Episódios de uma temporada (RF-21); temporada inexistente → 404 `TITLE_NOT_FOUND`. */
+export function getSeason(tmdbId: number, season: number): Promise<TmdbSeasonDetail> {
+  return cached(seasonMemory, `${tmdbId}:${season}`, SEASON_MEMORY_TTL_MS, () =>
+    getTmdb().getSeason(tmdbId, season),
+  );
+}
+
+/** Onde assistir no Brasil (RF-26), com cache de 24 h. */
+export function getProviders(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbProviders> {
+  return cached(providersMemory, `${mediaType}:${tmdbId}`, PROVIDERS_MEMORY_TTL_MS, () =>
+    getTmdb().getProviders(mediaType, tmdbId),
+  );
 }
 
 export interface TitleSummaryData {

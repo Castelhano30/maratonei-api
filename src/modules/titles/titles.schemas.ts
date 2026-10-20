@@ -15,6 +15,11 @@ export const TitleParams = z.object({
   tmdbId: z.coerce.number().int().min(1).max(2_147_483_647),
 });
 
+export const SeasonParams = z.object({
+  tmdbId: TitleParams.shape.tmdbId,
+  season: z.coerce.number().int().min(1).max(1000),
+});
+
 export const TitleSearchPage = pageOf(TitleSummary)
   .extend({ pageSize: z.literal(SEARCH_PAGE_SIZE) })
   .openapi('TitleSearchPage', {
@@ -53,5 +58,37 @@ export const TitleDetail = z
     trailer: Trailer.nullable(),
   })
   .openapi('TitleDetail');
+
+export const Episode = z
+  .object({
+    episode: z.number().int().min(1),
+    name: z.string(),
+    overview: z.string(),
+    airDate: z.string().nullable().openapi({ description: '`YYYY-MM-DD`.' }),
+    runtime: z.number().int().nullable().openapi({ description: 'Minutos.' }),
+    stillPath: z.string().nullable(),
+  })
+  .openapi('Episode');
+
+export const SeasonDetail = z
+  .object({ season: z.number().int().min(0), name: z.string(), episodes: z.array(Episode) })
+  .openapi('SeasonDetail');
+
+export const WatchProvider = z
+  .object({
+    providerId: z.number().int(),
+    providerName: z.string(),
+    logoPath: z.string().nullable(),
+  })
+  .openapi('WatchProvider');
+
+export const WatchProviders = z
+  .object({
+    flatrate: z.array(WatchProvider).openapi({ description: 'Assinatura.' }),
+    rent: z.array(WatchProvider).openapi({ description: 'Aluguel.' }),
+    buy: z.array(WatchProvider).openapi({ description: 'Compra.' }),
+    link: z.string().nullable().openapi({ description: 'Página do TMDB com as opções (BR).' }),
+  })
+  .openapi('WatchProviders');
 
 export type TitleDetail = z.infer<typeof TitleDetail>;

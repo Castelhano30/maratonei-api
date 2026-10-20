@@ -1,13 +1,19 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { setTmdbClient, unconfiguredTmdbClient } from '../../lib/tmdb/index.js';
 import { testApp } from '../../../test/helpers/app.js';
 import { allowedOrigin, asUser } from '../../../test/helpers/as-user.js';
 import { fakeTmdb } from '../../../test/helpers/tmdb.js';
-import { movieDetail, tvDetail } from '../../../test/fakes/tmdb-client.js';
+import {
+  movieDetail,
+  providersDetail,
+  seasonDetail,
+  tvDetail,
+} from '../../../test/fakes/tmdb-client.js';
 import { createTitle } from '../../../test/factories/title.js';
 import { clearTitleCache, ensureTitle, TITLE_CACHE_TTL_MS } from './index.js';
+import { PROVIDERS_MEMORY_TTL_MS } from './titles.service.js';
 
 describe('sem sessão (401 UNAUTHENTICATED)', () => {
   it.each(['/api/v1/titles/search?q=duna', '/api/v1/titles/MOVIE/1'])('GET %s', async (path) => {
@@ -189,6 +195,123 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
     const row = await prisma.title.findFirstOrThrow({ where: { tmdbId: 438631 } });
     expect(row.name).toBe('Duna');
     expect(row.cachedAt.getFullYear()).toBeGreaterThan(2020);
+  });
+});
+
+describe('GET /titles/TV/:tmdbId/seasons/:season (CAP-18)', () => {
+  it('devolve os episódios e usa o cache em memória na segunda consulta', async () => {
+    fakeTmdb.addSeason(70523, seasonDetail(1, 3));
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/titles/TV/70523/seasons/1');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ season: 1, name: 'Temporada 1' });
+    expect(res.body.episodes).toHaveLength(3);
+    expect(res.body.episodes[0]).toEqual({
+      episode: 1,
+      name: 'Episódio 1',
+      overview: 'Sinopse do episódio 1.',
+      airDate: '2017-12-01',
+      runtime: 50,
+      stillPath: '/s1e1.jpg',
+    });
+    await agent.get('/api/v1/titles/TV/70523/seasons/1').expect(200);
+    expect(fakeTmdb.getSeasonCalls).toHaveLength(1);
+    expect(await prisma.title.count()).toBe(0);
+  });
+
+  it('temporada inexistente → 404 TITLE_NOT_FOUND', async () => {
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/titles/TV/70523/seasons/9');
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ code: 'TITLE_NOT_FOUND' });
+  });
+
+  it('TMDB fora → 503 TMDB_UNAVAILABLE', async () => {
+    fakeTmdb.setDown(true);
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/titles/TV/70523/seasons/1');
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: 'TMDB_UNAVAILABLE' });
+  });
+
+  it.each(['abc', '0', '-1', '1.5'])('400 VALIDATION_FAILED: temporada %s', async (season) => {
+    const agent = await asUser();
+    const res = await agent.get(`/api/v1/titles/TV/70523/seasons/${season}`);
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  it('sem sessão → 401', async () => {
+    const res = await request(testApp())
+      .get('/api/v1/titles/TV/70523/seasons/1')
+      .set('Origin', allowedOrigin());
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /titles/:mediaType/:tmdbId/providers (CAP-19)', () => {
+  it('devolve flatrate, rent, buy e link; a 2ª chamada não toca o TMDB', async () => {
+    fakeTmdb.add(tvDetail()).addProviders('TV', 70523, providersDetail());
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/titles/TV/70523/providers');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      flatrate: [{ providerId: 8, providerName: 'Netflix', logoPath: '/netflix.jpg' }],
+      rent: [{ providerId: 2, providerName: 'Apple TV', logoPath: '/apple.jpg' }],
+      buy: [],
+      link: 'https://www.themoviedb.org/tv/70523/watch?locale=BR',
+    });
+    await agent.get('/api/v1/titles/TV/70523/providers').expect(200);
+    expect(fakeTmdb.getProvidersCalls).toHaveLength(1);
+  });
+
+  it('refaz a consulta depois de 24 h', async () => {
+    fakeTmdb.add(movieDetail());
+    const agent = await asUser();
+    const now = Date.now();
+    const spy = vi.spyOn(Date, 'now');
+    try {
+      spy.mockReturnValue(now);
+      await agent.get('/api/v1/titles/MOVIE/438631/providers').expect(200);
+      spy.mockReturnValue(now + PROVIDERS_MEMORY_TTL_MS - 1000);
+      await agent.get('/api/v1/titles/MOVIE/438631/providers').expect(200);
+      expect(fakeTmdb.getProvidersCalls).toHaveLength(1);
+      spy.mockReturnValue(now + PROVIDERS_MEMORY_TTL_MS + 1000);
+      await agent.get('/api/v1/titles/MOVIE/438631/providers').expect(200);
+      expect(fakeTmdb.getProvidersCalls).toHaveLength(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('sem dados BR → listas vazias e link null', async () => {
+    fakeTmdb.add(movieDetail());
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/titles/MOVIE/438631/providers');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ flatrate: [], rent: [], buy: [], link: null });
+  });
+
+  it('desconhecido → 404 TITLE_NOT_FOUND; TMDB fora → 503', async () => {
+    const agent = await asUser();
+    const missing = await agent.get('/api/v1/titles/MOVIE/999/providers');
+    expect(missing.status).toBe(404);
+    expect(missing.body).toMatchObject({ code: 'TITLE_NOT_FOUND' });
+    fakeTmdb.setDown(true);
+    const down = await agent.get('/api/v1/titles/MOVIE/999/providers');
+    expect(down.status).toBe(503);
+    expect(down.body).toMatchObject({ code: 'TMDB_UNAVAILABLE' });
+  });
+
+  it('400 em mediaType inválido; 401 sem sessão', async () => {
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/titles/SERIE/1/providers');
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
+    const anon = await request(testApp())
+      .get('/api/v1/titles/MOVIE/1/providers')
+      .set('Origin', allowedOrigin());
+    expect(anon.status).toBe(401);
   });
 });
 
