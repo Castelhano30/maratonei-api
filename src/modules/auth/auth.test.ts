@@ -318,6 +318,25 @@ describe('reset de senha', () => {
     expect(minutes).toBeLessThanOrEqual(60);
   });
 
+  it('falha do transporte: mesma resposta 200 neutra e erro no log sem o destinatário', async () => {
+    await createUser({ email: 'falha@maratonei.test', password: PASSWORD });
+    const sender = {
+      send: () => Promise.reject(new Error('smtp fora do ar')),
+    } as unknown as typeof emailSender;
+    const { logger, lines, raw } = captureLogs();
+    const app = express();
+    app.all('/api/v1/auth/*splat', createAuthHandler(createAuth({ email: sender, logger })));
+
+    const res = await request(app)
+      .post('/api/v1/auth/request-password-reset')
+      .set('Origin', allowedOrigin())
+      .send({ email: 'falha@maratonei.test' });
+
+    expect(res.status).toBe(200);
+    expect(lines.some((line) => line.level === 50)).toBe(true);
+    expect(raw.join('')).not.toContain('falha@maratonei.test');
+  });
+
   it('conta inexistente: mesma resposta 200 e nada é enviado', async () => {
     await createUser({ email: 'existe@maratonei.test', password: PASSWORD });
 

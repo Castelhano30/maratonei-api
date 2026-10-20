@@ -4,6 +4,8 @@ import { toNodeHandler } from 'better-auth/node';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { config as defaultConfig, type Config } from '../../config.js';
 import { prisma } from '../../lib/prisma.js';
+import type { Logger } from 'pino';
+import { createLogger } from '../../http/logger.js';
 import { emailSender, type EmailSender } from '../../lib/email.js';
 import {
   hashPassword,
@@ -41,6 +43,8 @@ export interface AuthOptions {
     | 'GOOGLE_CLIENT_SECRET'
   >;
   email?: EmailSender;
+  /** Registra falhas de envio de e-mail (padrão: logger da aplicação). */
+  logger?: Pick<Logger, 'error'>;
   /** Rate limit do Better Auth nas rotas de auth (ligado por padrão, exceto em NODE_ENV=test). */
   rateLimit?: boolean;
   /**
@@ -58,6 +62,7 @@ export interface AuthOptions {
 export function createAuth(options: AuthOptions = {}) {
   const config = options.config ?? defaultConfig;
   const email = options.email ?? emailSender;
+  const logger = options.logger ?? createLogger(defaultConfig);
   const secure = config.NODE_ENV === 'production';
   const googleEnabled = Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET);
 
@@ -79,12 +84,18 @@ export function createAuth(options: AuthOptions = {}) {
       resetPasswordTokenExpiresIn: RESET_TOKEN_SECONDS,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
-        // O envio nunca muda a resposta HTTP: throttle e teto do `lib/email` descartam em silêncio.
-        await email.send({
-          to: user.email,
-          subject: 'Redefina sua senha no Maratonei',
-          text: `Olá, ${user.name}!\n\nPara criar uma senha nova, abra o link (ele vale por 1 hora e só funciona uma vez):\n${withWebCallback(url, config.WEB_ORIGIN, RESET_PASSWORD_PATH)}\n\nSe não foi você, pode ignorar este e-mail.\n`,
-        });
+        // O envio nunca muda a resposta HTTP: throttle e teto do `lib/email` descartam em silêncio
+        // e falha do transporte é registrada (sem o destinatário) em vez de virar 500, que
+        // distinguiria conta existente de inexistente.
+        try {
+          await email.send({
+            to: user.email,
+            subject: 'Redefina sua senha no Maratonei',
+            text: `Olá, ${user.name}!\n\nPara criar uma senha nova, abra o link (ele vale por 1 hora e só funciona uma vez):\n${withWebCallback(url, config.WEB_ORIGIN, RESET_PASSWORD_PATH)}\n\nSe não foi você, pode ignorar este e-mail.\n`,
+          });
+        } catch (error) {
+          logger.error({ err: error }, 'falha ao enviar o e-mail de redefinição de senha');
+        }
       },
     },
     // Google só é ligado com credenciais. Vínculo por e-mail apenas se o e-mail do Google vier
