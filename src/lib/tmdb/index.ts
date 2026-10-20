@@ -10,6 +10,8 @@ export type * from './types.js';
 export const unconfiguredTmdbClient: TmdbClient = {
   search: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
   getTitle: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
+  getSeason: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
+  getProviders: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
 };
 
 let current: TmdbClient | undefined;

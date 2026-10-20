@@ -43,6 +43,37 @@ export interface TmdbTitleDetail extends TmdbTitleSummary {
   trailer: TmdbTrailer | null;
 }
 
+export interface TmdbEpisode {
+  episode: number;
+  name: string;
+  overview: string;
+  /** `YYYY-MM-DD`. */
+  airDate: string | null;
+  /** Minutos. */
+  runtime: number | null;
+  stillPath: string | null;
+}
+
+export interface TmdbSeasonDetail {
+  season: number;
+  name: string;
+  episodes: TmdbEpisode[];
+}
+
+export interface TmdbProvider {
+  providerId: number;
+  providerName: string;
+  logoPath: string | null;
+}
+
+/** Onde assistir na região BR; sem dados → listas vazias e `link: null`. */
+export interface TmdbProviders {
+  flatrate: TmdbProvider[];
+  rent: TmdbProvider[];
+  buy: TmdbProvider[];
+  link: string | null;
+}
+
 /**
  * Porta do TMDB (AD-11). As implementações lançam `AppError`:
  * `TMDB_UNAVAILABLE` (sem chave, rede, timeout, 5xx, limite) e `TITLE_NOT_FOUND`.
@@ -50,4 +81,8 @@ export interface TmdbTitleDetail extends TmdbTitleSummary {
 export interface TmdbClient {
   search(query: string, page: number): Promise<TmdbSearchPage>;
   getTitle(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail>;
+  /** Temporada de uma série; inexistente → `TITLE_NOT_FOUND`. */
+  getSeason(tmdbId: number, season: number): Promise<TmdbSeasonDetail>;
+  /** Watch providers da região BR. */
+  getProviders(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbProviders>;
 }

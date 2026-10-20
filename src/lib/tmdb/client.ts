@@ -3,7 +3,10 @@ import { AppError } from '../../http/app-error.js';
 import type {
   TmdbClient,
   TmdbMediaType,
+  TmdbProvider,
+  TmdbProviders,
   TmdbSearchPage,
+  TmdbSeasonDetail,
   TmdbTitleDetail,
   TmdbTitleSummary,
   TmdbTrailer,
@@ -87,6 +90,49 @@ const detailSchema = z.object({
     .nullish(),
 });
 
+const seasonSchema = z.object({
+  season_number: z.number().int(),
+  name: nullableString,
+  episodes: z
+    .array(
+      z.object({
+        episode_number: z.number().int(),
+        name: nullableString,
+        overview: nullableString,
+        air_date: nullableString,
+        runtime: z.number().int().nullish(),
+        still_path: nullableString,
+      }),
+    )
+    .nullish(),
+});
+
+const providerListSchema = z
+  .array(
+    z.object({
+      provider_id: z.number().int(),
+      provider_name: z.string(),
+      logo_path: nullableString,
+    }),
+  )
+  .nullish();
+
+const providersSchema = z.object({
+  results: z
+    .record(
+      z.string(),
+      z.object({
+        link: nullableString,
+        flatrate: providerListSchema,
+        rent: providerListSchema,
+        buy: providerListSchema,
+      }),
+    )
+    .nullish(),
+});
+
+const PROVIDERS_REGION = 'BR';
+
 function yearOf(date: string | null | undefined): number | null {
   const year = date ? Number.parseInt(date.slice(0, 4), 10) : Number.NaN;
   return Number.isInteger(year) && year > 0 ? year : null;
@@ -161,6 +207,19 @@ export function createHttpTmdbClient(options: HttpTmdbClientOptions): TmdbClient
     return result.data;
   }
 
+  function toProviders(
+    list:
+      | { provider_id: number; provider_name: string; logo_path?: string | null }[]
+      | null
+      | undefined,
+  ): TmdbProvider[] {
+    return (list ?? []).map((provider) => ({
+      providerId: provider.provider_id,
+      providerName: provider.provider_name,
+      logoPath: provider.logo_path ?? null,
+    }));
+  }
+
   return {
     async search(query, page): Promise<TmdbSearchPage> {
       const body = parse(
@@ -225,6 +284,36 @@ export function createHttpTmdbClient(options: HttpTmdbClientOptions): TmdbClient
           profilePath: member.profile_path ?? null,
         })),
         trailer: pickTrailer(body.videos?.results ?? []),
+      };
+    },
+
+    async getSeason(tmdbId, season): Promise<TmdbSeasonDetail> {
+      const body = parse(seasonSchema, await request(`/tv/${tmdbId}/season/${season}`, {}));
+      return {
+        season: body.season_number,
+        name: body.name ?? '',
+        episodes: (body.episodes ?? []).map((episode) => ({
+          episode: episode.episode_number,
+          name: episode.name ?? '',
+          overview: episode.overview ?? '',
+          airDate: episode.air_date || null,
+          runtime: episode.runtime ?? null,
+          stillPath: episode.still_path ?? null,
+        })),
+      };
+    },
+
+    async getProviders(mediaType, tmdbId): Promise<TmdbProviders> {
+      const body = parse(
+        providersSchema,
+        await request(`/${mediaType === 'MOVIE' ? 'movie' : 'tv'}/${tmdbId}/watch/providers`, {}),
+      );
+      const region = body.results?.[PROVIDERS_REGION];
+      return {
+        flatrate: toProviders(region?.flatrate),
+        rent: toProviders(region?.rent),
+        buy: toProviders(region?.buy),
+        link: region?.link || null,
       };
     },
   };

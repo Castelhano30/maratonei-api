@@ -194,6 +194,92 @@ describe('createHttpTmdbClient.getTitle', () => {
   });
 });
 
+describe('createHttpTmdbClient.getSeason', () => {
+  it('normaliza os episódios da temporada em pt-BR', async () => {
+    tmdb.on('GET', '/tv/70523/season/1', () => ({
+      body: {
+        season_number: 1,
+        name: 'Temporada 1',
+        episodes: [
+          {
+            episode_number: 1,
+            name: 'Segredos',
+            overview: 'Um menino some.',
+            air_date: '2017-12-01',
+            runtime: 52,
+            still_path: '/e1.jpg',
+          },
+          { episode_number: 2, name: null, overview: null, air_date: '', still_path: null },
+        ],
+      },
+    }));
+
+    const season = await client().getSeason(70523, 1);
+
+    expect(tmdb.requests.at(-1)?.query.get('language')).toBe('pt-BR');
+    expect(season).toEqual({
+      season: 1,
+      name: 'Temporada 1',
+      episodes: [
+        {
+          episode: 1,
+          name: 'Segredos',
+          overview: 'Um menino some.',
+          airDate: '2017-12-01',
+          runtime: 52,
+          stillPath: '/e1.jpg',
+        },
+        { episode: 2, name: '', overview: '', airDate: null, runtime: null, stillPath: null },
+      ],
+    });
+  });
+
+  it('temporada inexistente (404) vira TITLE_NOT_FOUND', async () => {
+    expect(await codeOf(client().getSeason(70523, 9))).toBe('TITLE_NOT_FOUND');
+  });
+});
+
+describe('createHttpTmdbClient.getProviders', () => {
+  it('lê só a região BR e normaliza as listas', async () => {
+    tmdb.on('GET', '/tv/70523/watch/providers', () => ({
+      body: {
+        id: 70523,
+        results: {
+          US: { link: 'https://tmdb/us', flatrate: [{ provider_id: 9, provider_name: 'Prime' }] },
+          BR: {
+            link: 'https://tmdb/br',
+            flatrate: [{ provider_id: 8, provider_name: 'Netflix', logo_path: '/n.jpg' }],
+            buy: [{ provider_id: 2, provider_name: 'Apple TV', logo_path: null }],
+          },
+        },
+      },
+    }));
+
+    expect(await client().getProviders('TV', 70523)).toEqual({
+      flatrate: [{ providerId: 8, providerName: 'Netflix', logoPath: '/n.jpg' }],
+      rent: [],
+      buy: [{ providerId: 2, providerName: 'Apple TV', logoPath: null }],
+      link: 'https://tmdb/br',
+    });
+  });
+
+  it('usa o endpoint de filme e devolve vazio sem dados BR', async () => {
+    tmdb.on('GET', '/movie/1/watch/providers', () => ({
+      body: { id: 1, results: { US: { link: 'x' } } },
+    }));
+    expect(await client().getProviders('MOVIE', 1)).toEqual({
+      flatrate: [],
+      rent: [],
+      buy: [],
+      link: null,
+    });
+  });
+
+  it('título desconhecido (404) vira TITLE_NOT_FOUND', async () => {
+    expect(await codeOf(client().getProviders('MOVIE', 999))).toBe('TITLE_NOT_FOUND');
+  });
+});
+
 describe('falhas do TMDB', () => {
   it('5xx persistente: tenta duas vezes e vira TMDB_UNAVAILABLE', async () => {
     tmdb.on('GET', '/movie/1', () => ({ status: 500, body: {} }));
@@ -240,6 +326,8 @@ describe('getTmdb', () => {
     expect(getTmdb()).toBe(unconfiguredTmdbClient);
     expect(await codeOf(getTmdb().search('x', 1))).toBe('TMDB_UNAVAILABLE');
     expect(await codeOf(getTmdb().getTitle('TV', 1))).toBe('TMDB_UNAVAILABLE');
+    expect(await codeOf(getTmdb().getSeason(1, 1))).toBe('TMDB_UNAVAILABLE');
+    expect(await codeOf(getTmdb().getProviders('TV', 1))).toBe('TMDB_UNAVAILABLE');
   });
 
   it('usa o cliente injetado', () => {
