@@ -5,7 +5,7 @@ import { AppError } from './app-error.js';
 export const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
- * CSRF por verificação de origem (AD-5): todo método fora de GET/HEAD/OPTIONS
+ * CSRF por verificação de origem: todo método fora de GET/HEAD/OPTIONS
  * exige `Origin` presente e listado em `ALLOWED_ORIGINS`, senão 403
  * `ORIGIN_REJECTED`.
  */

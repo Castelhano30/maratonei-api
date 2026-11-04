@@ -4,7 +4,7 @@ import type { HealthReadyResponse, HealthResponse } from './health.schemas.js';
 
 export const READINESS_TIMEOUT_MS = 2000;
 
-/** Liveness: nunca toca o banco (o monitor externo não pode acordar o Neon, AD-16). */
+/** Liveness: nunca toca o banco (o monitor externo não pode acordar o Neon). */
 export function getLiveness(): HealthResponse {
   return { status: 'ok' };
 }

@@ -29,9 +29,8 @@ export interface FakeTmdbServer {
 }
 
 /**
- * Esqueleto do TMDB fake (AD-11): servidor HTTP real em porta efêmera. Rotas não
- * registradas respondem 404 no formato de erro do TMDB. As fases de títulos
- * registram aqui as respostas de busca, detalhe, temporadas e providers.
+ * Esqueleto do TMDB fake: servidor HTTP real em porta efêmera. Rotas não
+ * registradas respondem 404 no formato de erro do TMDB.
  */
 export async function startFakeTmdb(): Promise<FakeTmdbServer> {
   const handlers = new Map<string, FakeTmdbHandler>();

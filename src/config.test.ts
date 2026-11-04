@@ -7,6 +7,8 @@ import { ConfigError, normalizeOrigin, parseConfig } from './config.js';
 const validEnv = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/maratonei',
   ALLOWED_ORIGINS: 'http://localhost:3000',
+  WEB_ORIGIN: 'http://localhost:3000',
+  BETTER_AUTH_SECRET: 'x'.repeat(32),
 };
 
 function configErrorOf(env: NodeJS.ProcessEnv): ConfigError {
@@ -28,7 +30,57 @@ describe('parseConfig (AD-16)', () => {
       LOG_LEVEL: 'info',
       DATABASE_URL: validEnv.DATABASE_URL,
       ALLOWED_ORIGINS: ['http://localhost:3000'],
+      WEB_ORIGIN: 'http://localhost:3000',
+      BETTER_AUTH_SECRET: validEnv.BETTER_AUTH_SECRET,
+      EMAIL_TRANSPORT: 'console',
+      MAX_LIST_MEMBERS: 100,
+      RATE_LIMIT_GLOBAL_PER_MIN: 300,
+      RATE_LIMIT_TITLES_PER_MIN: 60,
+      RATE_LIMIT_AUTH_PER_MIN: 30,
+      TRUST_PROXY: 0,
+      DB_CONNECTION_TIMEOUT_MS: 5000,
+      DB_STATEMENT_TIMEOUT_MS: 15000,
     });
+  });
+
+  it('TMDB é opcional: sem chave fica indefinido; com chave e base é aceito; base inválida falha', () => {
+    const off = parseConfig(validEnv);
+    expect(off.TMDB_API_KEY).toBeUndefined();
+    expect(parseConfig({ ...validEnv, TMDB_API_KEY: '' })).toEqual(off);
+    const on = parseConfig({
+      ...validEnv,
+      TMDB_API_KEY: 'abc',
+      TMDB_BASE_URL: 'http://127.0.0.1:9/3',
+    });
+    expect(on.TMDB_API_KEY).toBe('abc');
+    expect(on.TMDB_BASE_URL).toBe('http://127.0.0.1:9/3');
+    expect(configErrorOf({ ...validEnv, TMDB_BASE_URL: 'nao-e-url' }).issues[0]?.variable).toBe(
+      'TMDB_BASE_URL',
+    );
+  });
+
+  it('Google é opcional: sem credenciais fica indefinido, com as duas é aceito', () => {
+    const off = parseConfig(validEnv);
+    expect(off.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(off.GOOGLE_CLIENT_SECRET).toBeUndefined();
+    expect(parseConfig({ ...validEnv, GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '' })).toEqual(
+      off,
+    );
+    const on = parseConfig({
+      ...validEnv,
+      GOOGLE_CLIENT_ID: 'id',
+      GOOGLE_CLIENT_SECRET: 'segredo',
+    });
+    expect(on).toMatchObject({ GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'segredo' });
+  });
+
+  it.each([
+    ['só o id', { GOOGLE_CLIENT_ID: 'id' }, 'GOOGLE_CLIENT_SECRET'],
+    ['só o segredo', { GOOGLE_CLIENT_SECRET: 'segredo' }, 'GOOGLE_CLIENT_ID'],
+  ])('Google com %s é rejeitado sem vazar o valor', (_nome, extra, variable) => {
+    const error = configErrorOf({ ...validEnv, ...extra });
+    expect(error.issues.map((i) => i.variable)).toEqual([variable]);
+    expect(JSON.stringify(error.issues)).not.toContain('segredo"');
   });
 
   it('normaliza e deduplica ALLOWED_ORIGINS', () => {
@@ -50,7 +102,8 @@ describe('parseConfig (AD-16)', () => {
   });
 
   it('falha sem DATABASE_URL, listando a variável', () => {
-    const error = configErrorOf({ ALLOWED_ORIGINS: validEnv.ALLOWED_ORIGINS });
+    const { DATABASE_URL: _omitted, ...envWithoutDatabase } = validEnv;
+    const error = configErrorOf(envWithoutDatabase);
     expect(error.issues.map((i) => i.variable)).toEqual(['DATABASE_URL']);
     expect(error.message).toContain('DATABASE_URL');
   });
@@ -83,9 +136,45 @@ describe('parseConfig (AD-16)', () => {
       NODE_ENV: 'staging',
     });
     expect(new Set(error.issues.map((i) => i.variable))).toEqual(
-      new Set(['DATABASE_URL', 'ALLOWED_ORIGINS', 'PORT', 'NODE_ENV']),
+      new Set([
+        'DATABASE_URL',
+        'ALLOWED_ORIGINS',
+        'PORT',
+        'NODE_ENV',
+        'WEB_ORIGIN',
+        'BETTER_AUTH_SECRET',
+      ]),
     );
     expect(JSON.stringify(error.issues)).not.toContain('segredo');
+  });
+
+  it('exige WEB_ORIGIN como origem e BETTER_AUTH_SECRET com 32+ caracteres, sem imprimir valores', () => {
+    const { WEB_ORIGIN: _w, BETTER_AUTH_SECRET: _b, ...base } = validEnv;
+    expect(configErrorOf(base).issues.map((i) => i.variable)).toEqual([
+      'WEB_ORIGIN',
+      'BETTER_AUTH_SECRET',
+    ]);
+    const error = configErrorOf({
+      ...base,
+      WEB_ORIGIN: 'http://localhost:3000/app',
+      BETTER_AUTH_SECRET: 'curto-demais',
+    });
+    expect(error.issues.map((i) => i.variable)).toEqual(['WEB_ORIGIN', 'BETTER_AUTH_SECRET']);
+    expect(JSON.stringify(error.issues)).not.toContain('curto-demais');
+  });
+
+  it('rejeita o segredo de exemplo do .env.example', () => {
+    const error = configErrorOf({
+      ...validEnv,
+      BETTER_AUTH_SECRET: `troque-por-${'x'.repeat(40)}`,
+    });
+    expect(error.issues.map((i) => i.variable)).toEqual(['BETTER_AUTH_SECRET']);
+  });
+
+  it('rejeita EMAIL_TRANSPORT desconhecido', () => {
+    expect(
+      configErrorOf({ ...validEnv, EMAIL_TRANSPORT: 'resend' }).issues.map((i) => i.variable),
+    ).toEqual(['EMAIL_TRANSPORT']);
   });
 
   it('normalizeOrigin devolve só scheme://host[:porta]', () => {

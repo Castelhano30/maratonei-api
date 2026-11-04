@@ -26,9 +26,18 @@ describe('prisma/seed.ts', () => {
     expect((await runSeed()).code).toBe(0);
     expect((await runSeed({ SEED_E2E_PASSWORD: 'outra-senha' })).code).toBe(0);
 
-    const users = await prisma.user.findMany({ include: { accounts: true } });
-    expect(users).toHaveLength(1);
-    const [user] = users;
+    const users = await prisma.user.findMany({
+      include: { accounts: true },
+      orderBy: { email: 'asc' },
+    });
+    // Usuário E2E + 3 contas de teste para uso manual, sem duplicar na segunda execução.
+    expect(users.map((u) => u.email)).toEqual([
+      'ana@maratonei.local',
+      'bruno@maratonei.local',
+      'carla@maratonei.local',
+      'e2e@maratonei.local',
+    ]);
+    const user = users.find((u) => u.email === 'e2e@maratonei.local');
     expect(user).toMatchObject({
       email: 'e2e@maratonei.local',
       name: 'Usuário E2E',
@@ -39,6 +48,63 @@ describe('prisma/seed.ts', () => {
     expect(account).toMatchObject({ providerId: 'credential', accountId: user?.id });
     expect(account?.password).toMatch(/^\$argon2id\$/);
     expect(await argon2.verify(account?.password ?? '', 'outra-senha')).toBe(true);
+
+    // As contas de teste são verificadas, com credencial argon2id e a senha padrão de teste.
+    for (const testUser of users.filter((u) => u.email !== 'e2e@maratonei.local')) {
+      expect(testUser.emailVerified).toBe(true);
+      expect(testUser.accounts).toHaveLength(1);
+      const testAccount = testUser.accounts[0];
+      expect(testAccount).toMatchObject({ providerId: 'credential', accountId: testUser.id });
+      expect(await argon2.verify(testAccount?.password ?? '', 'maratonei-teste-123')).toBe(true);
+    }
+
+    // Uma lista de exemplo, com o usuário como dono, sem duplicar na segunda execução.
+    const lists = await prisma.list.findMany({
+      include: { members: { include: { user: true } } },
+      orderBy: { name: 'asc' },
+    });
+    expect(lists.map((l) => l.name)).toEqual(['Maratona de exemplo', 'Maratona do grupo']);
+    const [exampleList, groupList] = lists;
+    expect(exampleList).toMatchObject({ ownerId: user?.id });
+    expect(exampleList?.members).toHaveLength(1);
+    expect(exampleList?.members[0]).toMatchObject({ userId: user?.id, role: 'OWNER' });
+
+    // Lista compartilhada pelas contas de teste: dona, editor e membro.
+    expect(groupList?.members.map((m) => [m.user.email, m.role]).sort()).toEqual([
+      ['ana@maratonei.local', 'OWNER'],
+      ['bruno@maratonei.local', 'EDITOR'],
+      ['carla@maratonei.local', 'MEMBER'],
+    ]);
+
+    // Dois itens de exemplo com títulos estáticos (sem TMDB), idempotentes.
+    const items = await prisma.listItem.findMany({
+      include: { title: true },
+      orderBy: { title: { name: 'asc' } },
+    });
+    expect(items.map((item) => [item.title.name, item.title.mediaType, item.status])).toEqual([
+      ['Dark', 'TV', 'WATCHING'],
+      ['Duna', 'MOVIE', 'WANT'],
+    ]);
+    expect(items[0]?.title.seasons).toHaveLength(3);
+    expect(items.every((item) => item.addedById === user?.id)).toBe(true);
+    expect(await prisma.title.count()).toBe(2);
+
+    // Uma nota e um comentário do dono no primeiro título, sem duplicar.
+    const ratings = await prisma.rating.findMany({
+      include: { listItem: { include: { title: true } } },
+    });
+    expect(ratings.map((r) => [r.listItem.title.name, r.stars])).toEqual([['Duna', 4]]);
+    expect(await prisma.comment.count()).toBe(1);
+
+    // Dois episódios assistidos pelo dono na série, sem duplicar.
+    const progress = await prisma.episodeProgress.findMany({
+      include: { listItem: { include: { title: true } } },
+      orderBy: [{ season: 'asc' }, { episode: 'asc' }],
+    });
+    expect(progress.map((p) => [p.listItem.title.name, p.season, p.episode])).toEqual([
+      ['Dark', 1, 1],
+      ['Dark', 1, 2],
+    ]);
   });
 
   it('recusa rodar com NODE_ENV=production', async () => {
@@ -46,5 +112,34 @@ describe('prisma/seed.ts', () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain('production');
     expect(await prisma.user.count()).toBe(0);
+  });
+
+  it('recusa banco que não é local sem SEED_ALLOW_REMOTE=1', async () => {
+    const result = await runSeed({
+      DATABASE_URL: 'postgresql://u:p@ep-exemplo.neon.tech:5432/maratonei',
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('ep-exemplo.neon.tech');
+    expect(result.output).toContain('SEED_ALLOW_REMOTE');
+    expect(await prisma.user.count()).toBe(0);
+  });
+
+  it.each(['host', 'hostaddr'])('recusa ?%s= na connection string', async (param) => {
+    const result = await runSeed({
+      DATABASE_URL: `postgresql://u:p@localhost:5432/maratonei?${param}=ep-exemplo.neon.tech`,
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(param);
+    expect(await prisma.user.count()).toBe(0);
+  });
+
+  it('com SEED_ALLOW_REMOTE=1 a guarda de host é liberada', async () => {
+    // O host remoto não existe: o seed passa da guarda e falha só ao conectar.
+    const result = await runSeed({
+      DATABASE_URL: 'postgresql://u:p@host-inexistente.invalid:5432/maratonei',
+      SEED_ALLOW_REMOTE: '1',
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).not.toContain('SEED_ALLOW_REMOTE');
   });
 });

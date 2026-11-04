@@ -84,6 +84,246 @@ describe('GET /api/v1/openapi.json (CAP-1)', () => {
   });
 });
 
+describe('superfície de auth no OpenAPI', () => {
+  it('documenta getMe (200 MeResponse, 401 Problem) e nenhuma rota de auth', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Record<string, unknown>>>;
+
+    expect(paths['/api/v1/me']?.get).toMatchObject({
+      operationId: 'getMe',
+      responses: {
+        '200': {
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MeResponse' } } },
+        },
+        '401': {
+          content: {
+            'application/problem+json': { schema: { $ref: '#/components/schemas/Problem' } },
+          },
+        },
+      },
+    });
+    const schemas = (document.components as { schemas: Record<string, { properties: object }> })
+      .schemas;
+    expect(Object.keys(schemas.MeResponse?.properties ?? {}).sort()).toEqual([
+      'email',
+      'id',
+      'image',
+      'name',
+    ]);
+    expect(Object.keys(paths).filter((path) => path.startsWith('/api/v1/auth'))).toEqual([]);
+  });
+});
+
+describe('listas, membros e convites no OpenAPI', () => {
+  const EXPECTED: Record<string, string> = {
+    'get /api/v1/lists': 'listLists',
+    'post /api/v1/lists': 'createList',
+    'get /api/v1/lists/{listId}': 'getList',
+    'patch /api/v1/lists/{listId}': 'updateList',
+    'delete /api/v1/lists/{listId}': 'deleteList',
+    'get /api/v1/lists/{listId}/members': 'listMembers',
+    'delete /api/v1/lists/{listId}/members/me': 'leaveList',
+    'delete /api/v1/lists/{listId}/members/{memberId}': 'removeMember',
+    'put /api/v1/lists/{listId}/members/{memberId}/role': 'setMemberRole',
+    'get /api/v1/lists/{listId}/invite': 'getListInvite',
+    'post /api/v1/lists/{listId}/invite': 'rotateListInvite',
+    'delete /api/v1/lists/{listId}/invite': 'revokeListInvite',
+    'get /api/v1/invites/{token}': 'getInvite',
+    'post /api/v1/invites/{token}/accept': 'acceptInvite',
+  };
+
+  it('documenta todas as rotas da Fase 2a com operationId e erros problem+json', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+
+    for (const [key, operationId] of Object.entries(EXPECTED)) {
+      const [method, path] = key.split(' ') as [string, string];
+      const operation = paths[path]?.[method] as
+        | (Operation & { responses: Record<string, { content?: Record<string, unknown> }> })
+        | undefined;
+      expect(operation?.operationId, key).toBe(operationId);
+      expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
+    }
+  });
+
+  it('publica ListSummary, Member e Invite; listas e membros respondem Page<T>', async () => {
+    const document = await fetchDocument();
+    const schemas = (document.components as { schemas: Record<string, Record<string, unknown>> })
+      .schemas;
+
+    expect(schemas.ListSummary).toMatchObject({
+      required: expect.arrayContaining([
+        'id',
+        'name',
+        'description',
+        'role',
+        'memberCount',
+        'itemCount',
+        'createdAt',
+        'updatedAt',
+      ]),
+    });
+    expect(schemas.Member).toMatchObject({
+      required: expect.arrayContaining(['id', 'user', 'role', 'joinedAt']),
+    });
+    expect(schemas.ListSummaryPage).toMatchObject({
+      required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+    });
+    expect(schemas.MemberPage).toMatchObject({
+      required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+    });
+  });
+});
+
+describe('títulos e itens no OpenAPI (Fase 3a)', () => {
+  const EXPECTED: Record<string, string> = {
+    'get /api/v1/titles/search': 'searchTitles',
+    'get /api/v1/titles/{mediaType}/{tmdbId}': 'getTitle',
+    'get /api/v1/lists/{listId}/items': 'listItems',
+    'post /api/v1/lists/{listId}/items': 'addItem',
+    'get /api/v1/lists/{listId}/items/{itemId}': 'getItem',
+    'put /api/v1/lists/{listId}/items/{itemId}/status': 'setItemStatus',
+    'patch /api/v1/lists/{listId}/items/{itemId}': 'patchItem',
+    'delete /api/v1/lists/{listId}/items/{itemId}': 'removeItem',
+  };
+
+  it('documenta as rotas com operationId e 401 problem+json', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+
+    for (const [key, operationId] of Object.entries(EXPECTED)) {
+      const [method, path] = key.split(' ') as [string, string];
+      const operation = paths[path]?.[method] as
+        | (Operation & { responses: Record<string, { content?: Record<string, unknown> }> })
+        | undefined;
+      expect(operation?.operationId, key).toBe(operationId);
+      expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
+    }
+  });
+
+  it('documenta os erros de domínio e os filtros de listItems', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<
+      string,
+      Record<string, { responses: Record<string, unknown>; parameters?: { name: string }[] }>
+    >;
+
+    expect(Object.keys(paths['/api/v1/titles/search']?.get?.responses ?? {})).toEqual(
+      expect.arrayContaining(['200', '400', '401', '503']),
+    );
+    expect(Object.keys(paths['/api/v1/lists/{listId}/items']?.post?.responses ?? {})).toEqual(
+      expect.arrayContaining(['201', '403', '404', '409', '503']),
+    );
+    const params = paths['/api/v1/lists/{listId}/items']?.get?.parameters?.map((p) => p.name);
+    expect(params).toEqual(
+      expect.arrayContaining(['status', 'mediaType', 'genreId', 'sort', 'page', 'pageSize']),
+    );
+  });
+
+  it('publica TitleSummary, TitleDetail e ListItem; itens respondem Page<T>', async () => {
+    const document = await fetchDocument();
+    const schemas = (document.components as { schemas: Record<string, Record<string, unknown>> })
+      .schemas;
+
+    expect(schemas.TitleSummary).toMatchObject({
+      required: expect.arrayContaining([
+        'tmdbId',
+        'mediaType',
+        'name',
+        'overview',
+        'posterPath',
+        'releaseYear',
+        'genreIds',
+      ]),
+    });
+    expect(schemas.TitleDetail).toMatchObject({
+      required: expect.arrayContaining(['genres', 'runtime', 'seasons', 'cast', 'trailer']),
+    });
+    expect(schemas.ListItem).toMatchObject({
+      required: expect.arrayContaining([
+        'id',
+        'title',
+        'status',
+        'addedBy',
+        'addedAt',
+        'updatedAt',
+        'ratingAverage',
+        'ratingCount',
+      ]),
+    });
+    for (const name of ['ListItemPage', 'TitleSearchPage']) {
+      expect(schemas[name], name).toMatchObject({
+        required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+      });
+    }
+  });
+});
+
+describe('avaliações e comentários no OpenAPI (Fase 4a)', () => {
+  const I = '/api/v1/lists/{listId}/items/{itemId}';
+  const EXPECTED: Record<string, string> = {
+    [`get ${I}/ratings`]: 'listRatings',
+    [`put ${I}/ratings/me`]: 'setMyRating',
+    [`delete ${I}/ratings/me`]: 'removeMyRating',
+    [`get ${I}/comments`]: 'listComments',
+    [`post ${I}/comments`]: 'createComment',
+    [`patch ${I}/comments/{commentId}`]: 'updateComment',
+    [`delete ${I}/comments/{commentId}`]: 'deleteComment',
+  };
+
+  it('documenta as rotas com operationId e 401 problem+json', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+
+    for (const [key, operationId] of Object.entries(EXPECTED)) {
+      const [method, path] = key.split(' ') as [string, string];
+      const operation = paths[path]?.[method] as
+        | (Operation & { responses: Record<string, { content?: Record<string, unknown> }> })
+        | undefined;
+      expect(operation?.operationId, key).toBe(operationId);
+      expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
+    }
+  });
+
+  it('documenta 403 NOT_OWN_RESOURCE na edição e exclusão e a paginação dos comentários', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<
+      string,
+      Record<string, { responses: Record<string, unknown>; parameters?: { name: string }[] }>
+    >;
+    const item = `${I}/comments/{commentId}`;
+
+    expect(Object.keys(paths[item]?.patch?.responses ?? {})).toEqual(
+      expect.arrayContaining(['200', '400', '403', '404']),
+    );
+    expect(Object.keys(paths[item]?.delete?.responses ?? {})).toEqual(
+      expect.arrayContaining(['204', '403', '404']),
+    );
+    expect(paths[`${I}/comments`]?.get?.parameters?.map((p) => p.name)).toEqual(
+      expect.arrayContaining(['sort', 'page', 'pageSize']),
+    );
+  });
+
+  it('publica Rating, RatingList, Comment e CommentPage', async () => {
+    const document = await fetchDocument();
+    const schemas = (document.components as { schemas: Record<string, Record<string, unknown>> })
+      .schemas;
+
+    expect(schemas.Rating).toMatchObject({
+      required: expect.arrayContaining(['member', 'stars', 'updatedAt']),
+    });
+    expect(schemas.RatingList).toMatchObject({
+      required: expect.arrayContaining(['average', 'count', 'data']),
+    });
+    expect(schemas.Comment).toMatchObject({
+      required: expect.arrayContaining(['id', 'author', 'body', 'createdAt', 'updatedAt']),
+    });
+    expect(schemas.CommentPage).toMatchObject({
+      required: expect.arrayContaining(['data', 'page', 'pageSize', 'total']),
+    });
+  });
+});
+
 describe('GET /docs (Swagger UI)', () => {
   it('responde 200 com o HTML do Swagger UI', async () => {
     const res = await request(testApp()).get('/docs');

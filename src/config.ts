@@ -56,14 +56,69 @@ const allowedOrigins = z
     return [...new Set(origins)];
   });
 
-export const EnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  DATABASE_URL: postgresUrl,
-  DIRECT_DATABASE_URL: postgresUrl.optional(),
-  ALLOWED_ORIGINS: allowedOrigins,
-});
+const webOrigin = z
+  .string()
+  .trim()
+  .min(1, 'obrigatória')
+  .transform((raw, ctx) => {
+    const origin = normalizeOrigin(raw);
+    if (!origin) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'deve ser uma origem http(s)://host[:porta], sem path',
+      });
+      return z.NEVER;
+    }
+    return origin;
+  });
+
+export const EnvSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    DATABASE_URL: postgresUrl,
+    DIRECT_DATABASE_URL: postgresUrl.optional(),
+    ALLOWED_ORIGINS: allowedOrigins,
+    // Origem pública do web: base dos links de e-mail e `baseURL` do Better Auth.
+    WEB_ORIGIN: webOrigin,
+    BETTER_AUTH_SECRET: z
+      .string()
+      .trim()
+      .min(32, 'mínimo de 32 caracteres')
+      .refine((value) => !value.startsWith('troque-por-'), 'troque o segredo de exemplo'),
+    EMAIL_TRANSPORT: z.enum(['console']).default('console'),
+    // Teto técnico de membros por lista (aplicado só em `lists.addMember`).
+    MAX_LIST_MEMBERS: z.coerce.number().int().min(1).default(100),
+    // Limites de requisições por IP/minuto (0 desliga). Nos testes o limitador fica desligado.
+    RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().min(0).default(300),
+    RATE_LIMIT_TITLES_PER_MIN: z.coerce.number().int().min(0).default(60),
+    RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().min(0).default(30),
+    // Saltos de proxy confiáveis para descobrir o IP real (0 = nenhum; 1 = Render/Vercel).
+    TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
+    // Pool do Postgres: espera máxima por conexão e tempo máximo por query (0 desliga o
+    // statement_timeout, para poolers que rejeitam o parâmetro de startup).
+    DB_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(100).default(5000),
+    DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).default(15000),
+    // TMDB (opcional): sem chave, busca e detalhe respondem 503 TMDB_UNAVAILABLE.
+    TMDB_API_KEY: z.string().trim().min(1).optional(),
+    // Só para apontar ao TMDB fake; o padrão é a API oficial.
+    TMDB_BASE_URL: z.url().optional(),
+    // Login com Google (OAuth). Opcional: sem as duas variáveis o provedor fica desligado.
+    GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [env.GOOGLE_CLIENT_ID ? 'GOOGLE_CLIENT_SECRET' : 'GOOGLE_CLIENT_ID'],
+        message: 'informe GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET juntos (ou nenhum dos dois)',
+      });
+    }
+  });
 
 export type Config = z.infer<typeof EnvSchema>;
 

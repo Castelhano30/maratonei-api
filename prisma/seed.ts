@@ -1,7 +1,8 @@
 /**
  * Seed idempotente para dev e E2E: cria (ou atualiza) o usuário verificado usado
  * pelo E2E do web, com uma conta `credential` cuja senha é um hash argon2id.
- * Recusa rodar em produção.
+ * Recusa rodar com NODE_ENV=production e contra banco que não seja local, a menos que
+ * `SEED_ALLOW_REMOTE=1` (opt-in explícito).
  */
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -10,7 +11,136 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 
 const SEED_E2E_EMAIL = 'e2e@maratonei.local';
 const SEED_E2E_NAME = 'Usuário E2E';
+const SEED_LIST_NAME = 'Maratona de exemplo';
+const SEED_LIST_DESCRIPTION = 'Lista de exemplo criada pelo seed de desenvolvimento.';
+const SEED_RATING_STARS = 4;
+const SEED_PROGRESS_EPISODES = [
+  { season: 1, episode: 1 },
+  { season: 1, episode: 2 },
+];
+const SEED_COMMENT = 'Ótimo para a próxima maratona!';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
+// Contas de teste para uso manual (o web as lista na tela de login em desenvolvimento).
+const DEFAULT_SEED_TEST_PASSWORD = 'maratonei-teste-123';
+const SEED_TEST_LIST_NAME = 'Maratona do grupo';
+const SEED_TEST_LIST_DESCRIPTION = 'Lista compartilhada pelas contas de teste do seed.';
+const SEED_TEST_USERS = [
+  { email: 'ana@maratonei.local', name: 'Ana Teste', role: 'OWNER' },
+  { email: 'bruno@maratonei.local', name: 'Bruno Teste', role: 'EDITOR' },
+  { email: 'carla@maratonei.local', name: 'Carla Teste', role: 'MEMBER' },
+] as const;
+
+// Títulos de exemplo (dados estáticos: o seed nunca chama o TMDB).
+interface SeedTitle {
+  tmdbId: number;
+  mediaType: 'MOVIE' | 'TV';
+  name: string;
+  overview: string;
+  posterPath: string;
+  releaseYear: number;
+  genreIds: number[];
+  genres: string[];
+  runtime: number | null;
+  seasons?: { season: number; episodeCount: number }[];
+  status: 'WANT' | 'WATCHING' | 'WATCHED';
+}
+
+const SEED_TITLES: SeedTitle[] = [
+  {
+    tmdbId: 438631,
+    mediaType: 'MOVIE',
+    name: 'Duna',
+    overview: 'Paul Atreides une forças com os Fremen para vingar sua família.',
+    posterPath: '/d5NXSklXo0qyIYkgV94XAgMIckC.jpg',
+    releaseYear: 2021,
+    genreIds: [878, 12],
+    genres: ['Ficção científica', 'Aventura'],
+    runtime: 155,
+    status: 'WANT',
+  },
+  {
+    tmdbId: 70523,
+    mediaType: 'TV',
+    name: 'Dark',
+    overview: 'Uma cidade alemã esconde segredos que atravessam gerações.',
+    posterPath: '/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg',
+    releaseYear: 2017,
+    genreIds: [9648, 18],
+    genres: ['Mistério', 'Drama'],
+    runtime: null,
+    seasons: [
+      { season: 1, episodeCount: 10 },
+      { season: 2, episodeCount: 8 },
+      { season: 3, episodeCount: 8 },
+    ],
+    status: 'WATCHING',
+  },
+];
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+function databaseHost(connectionString: string): string {
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    throw new Error('DATABASE_URL inválida.');
+  }
+  // `?host=`/`?hostaddr=` trocam o host real da conexão: não há como confiar no hostname.
+  if (url.searchParams.has('host') || url.searchParams.has('hostaddr')) {
+    throw new Error('O seed recusa DATABASE_URL com "host" ou "hostaddr" na query.');
+  }
+  return url.hostname.toLowerCase();
+}
+
+type Tx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+
+async function upsertCredential(tx: Tx, userId: string, passwordHash: string): Promise<void> {
+  const credential = await tx.account.findFirst({ where: { userId, providerId: 'credential' } });
+  if (credential) {
+    await tx.account.update({
+      where: { id: credential.id },
+      data: { accountId: userId, password: passwordHash },
+    });
+  } else {
+    await tx.account.create({
+      data: { userId, providerId: 'credential', accountId: userId, password: passwordHash },
+    });
+  }
+}
+
+// Três contas verificadas numa lista compartilhada (dona, editora e membro), idempotente.
+async function seedTestUsers(tx: Tx, passwordHash: string): Promise<void> {
+  const ids = new Map<string, string>();
+  for (const { email, name } of SEED_TEST_USERS) {
+    const user = await tx.user.upsert({
+      where: { email },
+      create: { email, name, emailVerified: true },
+      update: { name, emailVerified: true },
+    });
+    await upsertCredential(tx, user.id, passwordHash);
+    ids.set(email, user.id);
+  }
+  const ownerId = ids.get(SEED_TEST_USERS[0].email)!;
+  const existing = await tx.list.findFirst({
+    where: { ownerId, name: SEED_TEST_LIST_NAME },
+    select: { id: true },
+  });
+  const list =
+    existing ??
+    (await tx.list.create({
+      data: { name: SEED_TEST_LIST_NAME, description: SEED_TEST_LIST_DESCRIPTION, ownerId },
+      select: { id: true },
+    }));
+  for (const { email, role } of SEED_TEST_USERS) {
+    const userId = ids.get(email)!;
+    await tx.listMember.upsert({
+      where: { listId_userId: { listId: list.id, userId } },
+      create: { listId: list.id, userId, role },
+      update: { role },
+    });
+  }
+}
 
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
@@ -21,10 +151,19 @@ async function main(): Promise<void> {
     throw new Error('DATABASE_URL não definida.');
   }
 
+  const host = databaseHost(connectionString);
+  if (!LOCAL_HOSTS.has(host) && process.env.SEED_ALLOW_REMOTE !== '1') {
+    throw new Error(
+      `O seed recusa o banco "${host}" (não é local). Para forçar, defina SEED_ALLOW_REMOTE=1.`,
+    );
+  }
+
   const password = process.env.SEED_E2E_PASSWORD || DEFAULT_SEED_E2E_PASSWORD;
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   try {
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    const testPassword = process.env.SEED_TEST_PASSWORD || DEFAULT_SEED_TEST_PASSWORD;
+    const testPasswordHash = await argon2.hash(testPassword, { type: argon2.argon2id });
 
     await prisma.$transaction(async (tx) => {
       const user = await tx.user.upsert({
@@ -33,27 +172,98 @@ async function main(): Promise<void> {
         update: { name: SEED_E2E_NAME, emailVerified: true },
       });
 
-      const credential = await tx.account.findFirst({
-        where: { userId: user.id, providerId: 'credential' },
+      // Lista de exemplo do usuário E2E (idempotente: uma só, identificada por dono e nome).
+      const existingList = await tx.list.findFirst({
+        where: { ownerId: user.id, name: SEED_LIST_NAME },
+        select: { id: true },
       });
-      if (credential) {
-        await tx.account.update({
-          where: { id: credential.id },
-          data: { accountId: user.id, password: passwordHash },
-        });
-      } else {
-        await tx.account.create({
+      const list =
+        existingList ??
+        (await tx.list.create({
           data: {
-            userId: user.id,
-            providerId: 'credential',
-            accountId: user.id,
-            password: passwordHash,
+            name: SEED_LIST_NAME,
+            description: SEED_LIST_DESCRIPTION,
+            ownerId: user.id,
+            members: { create: { userId: user.id, role: 'OWNER' } },
           },
+          select: { id: true },
+        }));
+
+      // Itens de exemplo (idempotente: título global por (mediaType, tmdbId), item por (lista, título)).
+      for (const { status, seasons, ...title } of SEED_TITLES) {
+        const row = await tx.title.upsert({
+          where: { mediaType_tmdbId: { mediaType: title.mediaType, tmdbId: title.tmdbId } },
+          create: { ...title, ...(seasons ? { seasons } : {}) },
+          update: {},
+          select: { id: true },
         });
+        const item = await tx.listItem.upsert({
+          where: { listId_titleId: { listId: list.id, titleId: row.id } },
+          create: { listId: list.id, titleId: row.id, addedById: user.id, status },
+          update: {},
+          select: { id: true },
+        });
+        // Nota e comentário de exemplo só no primeiro título (idempotente).
+        if (title.tmdbId === SEED_TITLES[0]?.tmdbId) {
+          const member = await tx.listMember.findUniqueOrThrow({
+            where: { listId_userId: { listId: list.id, userId: user.id } },
+            select: { id: true },
+          });
+          await tx.rating.upsert({
+            where: { listItemId_memberId: { listItemId: item.id, memberId: member.id } },
+            create: { listItemId: item.id, memberId: member.id, stars: SEED_RATING_STARS },
+            update: {},
+          });
+          const hasComment = await tx.comment.findFirst({
+            where: { listItemId: item.id, memberId: member.id, body: SEED_COMMENT },
+            select: { id: true },
+          });
+          if (!hasComment) {
+            await tx.comment.create({
+              data: { listItemId: item.id, memberId: member.id, body: SEED_COMMENT },
+            });
+          }
+        }
       }
+
+      // Progresso de exemplo na série (idempotente).
+      const series = SEED_TITLES.find((t) => t.mediaType === 'TV');
+      if (series) {
+        const seriesRow = await tx.title.findUniqueOrThrow({
+          where: { mediaType_tmdbId: { mediaType: 'TV', tmdbId: series.tmdbId } },
+          select: { id: true },
+        });
+        const seriesItem = await tx.listItem.findUniqueOrThrow({
+          where: { listId_titleId: { listId: list.id, titleId: seriesRow.id } },
+          select: { id: true },
+        });
+        const member = await tx.listMember.findUniqueOrThrow({
+          where: { listId_userId: { listId: list.id, userId: user.id } },
+          select: { id: true },
+        });
+        for (const { season, episode } of SEED_PROGRESS_EPISODES) {
+          await tx.episodeProgress.upsert({
+            where: {
+              listItemId_memberId_season_episode: {
+                listItemId: seriesItem.id,
+                memberId: member.id,
+                season,
+                episode,
+              },
+            },
+            create: { listItemId: seriesItem.id, memberId: member.id, season, episode },
+            update: {},
+          });
+        }
+      }
+
+      await upsertCredential(tx, user.id, passwordHash);
+      await seedTestUsers(tx, testPasswordHash);
     });
 
-    console.log(`Seed concluído: usuário ${SEED_E2E_EMAIL} verificado.`);
+    console.log(
+      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo, dois itens, uma nota, um comentário e dois episódios assistidos; contas de teste ${SEED_TEST_USERS.map((u) => u.email).join(', ')} numa lista compartilhada.`,
+    );
   } finally {
     await prisma.$disconnect();
   }

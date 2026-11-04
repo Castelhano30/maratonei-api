@@ -14,20 +14,24 @@ datasource db {
 
 // ---------------------------------------------------------------------------
 // Identidade (módulo `auth`, AD-6/AD-8). Escrito à mão seguindo o schema do
-// Better Auth 1.7; a Fase 1 confere com a CLI do Better Auth e corrige por
-// migration aditiva.
+// Better Auth 1.7; conferido com a CLI na Fase 1a (campos idênticos), com o unique
+// `(provider_id, account_id)` acrescentado por migration aditiva.
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String    @id @default(uuid(7)) @db.Uuid
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false) @map("email_verified")
-  image         String?
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  sessions      Session[]
-  accounts      Account[]
+  id             String       @id @default(uuid(7)) @db.Uuid
+  name           String
+  email          String       @unique
+  emailVerified  Boolean      @default(false) @map("email_verified")
+  image          String?
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sessions       Session[]
+  accounts       Account[]
+  ownedLists     List[]
+  memberships    ListMember[]
+  invitesCreated Invite[]
+  itemsAdded     ListItem[]
 
   @@map("user")
 }
@@ -65,6 +69,7 @@ model Account {
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([providerId, accountId])
   @@index([userId])
   @@map("account")
 }
@@ -80,4 +85,190 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// Listas, membros e convites (módulos `lists` e `invites`, AD-7/AD-9).
+// Índices únicos parciais (um OWNER por lista; um convite ativo por lista)
+// vivem só na migration: o Prisma não os expressa.
+// ---------------------------------------------------------------------------
+
+enum ListRole {
+  OWNER
+  EDITOR
+  MEMBER
+
+  @@map("list_role")
+}
+
+model List {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  name        String
+  description String?
+  // Imutável após a criação (sem transferência de posse no MVP).
+  ownerId     String       @map("owner_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members     ListMember[]
+  invites     Invite[]
+  items       ListItem[]
+
+  @@index([ownerId])
+  @@map("list")
+}
+
+model ListMember {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  listId          String            @map("list_id") @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  role            ListRole          @default(MEMBER)
+  joinedAt        DateTime          @default(now()) @map("joined_at") @db.Timestamptz(3)
+  list            List              @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ratings         Rating[]
+  comments        Comment[]
+  episodeProgress EpisodeProgress[]
+
+  @@unique([listId, userId])
+  @@index([userId])
+  @@map("list_member")
+}
+
+model Invite {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  listId      String    @map("list_id") @db.Uuid
+  // 32 bytes aleatórios em base64url; a capacidade de entrar na lista.
+  token       String    @unique
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+  list        List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([listId])
+  @@map("invite")
+}
+
+// ---------------------------------------------------------------------------
+// Títulos e itens de lista (módulos `titles` e `items`, AD-8/AD-11).
+// `Title` é global (cache do TMDB compartilhado entre listas); `ListItem` liga
+// um título a uma lista, com o status coletivo.
+// ---------------------------------------------------------------------------
+
+enum MediaType {
+  MOVIE
+  TV
+
+  @@map("media_type")
+}
+
+enum ItemStatus {
+  WANT
+  WATCHING
+  WATCHED
+
+  @@map("item_status")
+}
+
+model Title {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  tmdbId      Int        @map("tmdb_id")
+  mediaType   MediaType  @map("media_type")
+  name        String
+  overview    String     @default("")
+  posterPath  String?    @map("poster_path")
+  releaseYear Int?       @map("release_year")
+  genreIds    Int[]      @map("genre_ids")
+  // Nomes dos gêneros, na mesma ordem de genreIds.
+  genres      String[]
+  // Minutos (filmes).
+  runtime     Int?
+  // Séries: [{ season, episodeCount }]. Episódios ficam só em memória.
+  seasons     Json?
+  cachedAt    DateTime   @default(now()) @map("cached_at") @db.Timestamptz(3)
+  items       ListItem[]
+
+  @@unique([mediaType, tmdbId])
+  @@map("title")
+}
+
+model ListItem {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  listId          String            @map("list_id") @db.Uuid
+  titleId         String            @map("title_id") @db.Uuid
+  addedById       String?           @map("added_by_id") @db.Uuid
+  status          ItemStatus        @default(WANT)
+  addedAt         DateTime          @default(now()) @map("added_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  list            List              @relation(fields: [listId], references: [id], onDelete: Cascade)
+  title           Title             @relation(fields: [titleId], references: [id], onDelete: Restrict)
+  addedBy         User?             @relation(fields: [addedById], references: [id], onDelete: SetNull)
+  ratings         Rating[]
+  comments        Comment[]
+  episodeProgress EpisodeProgress[]
+
+  @@unique([listId, titleId])
+  @@index([listId, addedAt])
+  @@index([listId, status])
+  @@index([titleId])
+  @@index([addedById])
+  @@map("list_item")
+}
+
+// ---------------------------------------------------------------------------
+// Avaliações e comentários (módulos `ratings` e `comments`, Fase 4a).
+// Autoria por `ListMember` (não por usuário): sair da lista ou ser removido
+// apaga as notas e os comentários do membro (cascata). O check `stars BETWEEN
+// 1 AND 5` vive só na migration: o Prisma não o expressa.
+// ---------------------------------------------------------------------------
+
+model Rating {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  listItemId String     @map("list_item_id") @db.Uuid
+  memberId   String     @map("member_id") @db.Uuid
+  stars      Int
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  listItem   ListItem   @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  member     ListMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([listItemId, memberId])
+  @@index([memberId])
+  @@map("rating")
+}
+
+model Comment {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  listItemId String     @map("list_item_id") @db.Uuid
+  memberId   String     @map("member_id") @db.Uuid
+  body       String
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  listItem   ListItem   @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  member     ListMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([listItemId, createdAt])
+  @@index([memberId])
+  @@map("comment")
+}
+
+// ---------------------------------------------------------------------------
+// Progresso de séries (módulo `progress`). Autoria por `ListMember`: sair da
+// lista ou ser removido apaga o progresso por cascata.
+// ---------------------------------------------------------------------------
+
+model EpisodeProgress {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  listItemId String     @map("list_item_id") @db.Uuid
+  memberId   String     @map("member_id") @db.Uuid
+  season     Int
+  episode    Int
+  watchedAt  DateTime   @default(now()) @map("watched_at") @db.Timestamptz(3)
+  listItem   ListItem   @relation(fields: [listItemId], references: [id], onDelete: Cascade)
+  member     ListMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([listItemId, memberId, season, episode])
+  @@index([memberId])
+  @@map("episode_progress")
 }

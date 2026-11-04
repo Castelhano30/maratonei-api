@@ -7,5 +7,5 @@ extendZodWithOpenApi(z);
 
 export { z };
 
-/** Registry único do contrato (AD-2): toda rota registra request, response e erros aqui. */
+/** Registry único do contrato: toda rota registra request, response e erros aqui. */
 export const registry = new OpenAPIRegistry();

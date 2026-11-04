@@ -5,7 +5,7 @@ import { MAX_PAGE_SIZE } from '../http/pagination.js';
 import { registry, z } from './registry.js';
 
 /**
- * Formatos compartilhados (AD-12). Toda rota reutiliza estes componentes em vez
+ * Formatos compartilhados. Toda rota reutiliza estes componentes em vez
  * de declarar o seu próprio formato de usuário, página, erro ou enum.
  */
 
@@ -13,6 +13,10 @@ import { registry, z } from './registry.js';
 export const MediaType = registry.register('MediaType', z.enum(['MOVIE', 'TV']));
 export const ItemStatus = registry.register('ItemStatus', z.enum(['WANT', 'WATCHING', 'WATCHED']));
 export const ListRole = registry.register('ListRole', z.enum(['OWNER', 'EDITOR', 'MEMBER']));
+
+/** Parâmetros de rota `:listId` e `:listId/items/:itemId`. */
+export const ListIdParams = z.object({ listId: z.uuid() });
+export const ListItemParams = z.object({ listId: z.uuid(), itemId: z.uuid() });
 
 export const UserSummary = registry.register(
   'UserSummary',
@@ -67,3 +71,17 @@ export function problemResponse(description: string): ResponseConfig {
     content: { [PROBLEM_CONTENT_TYPE]: { schema: Problem } },
   };
 }
+
+/** Resumo de título (busca e itens de lista). As imagens vêm do CDN do TMDB: a API só devolve o path. */
+export const TitleSummary = registry.register(
+  'TitleSummary',
+  z.object({
+    tmdbId: z.number().int().openapi({ example: 438631 }),
+    mediaType: MediaType,
+    name: z.string().openapi({ example: 'Duna' }),
+    overview: z.string(),
+    posterPath: z.string().nullable().openapi({ example: '/d5NXSklXo0qyIYkgV94XAgMIckC.jpg' }),
+    releaseYear: z.number().int().nullable(),
+    genreIds: z.array(z.number().int()),
+  }),
+);
