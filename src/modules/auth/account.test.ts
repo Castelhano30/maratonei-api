@@ -359,8 +359,8 @@ describe('exclusão de conta (deleteUser)', () => {
     await prisma.account.create({
       data: { userId: user.id, providerId: 'google', accountId: 'sub-apagar' },
     });
-    const outra = await createUser();
-    await createSession(outra);
+    const otherUser = await createUser();
+    await createSession(otherUser);
     const agent = await asUser(user);
     await createSession(user);
 
@@ -372,8 +372,8 @@ describe('exclusão de conta (deleteUser)', () => {
     expect(await prisma.account.count({ where: { userId: user.id } })).toBe(0);
     expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
     // Outro usuário não é tocado.
-    expect(await prisma.user.count({ where: { id: outra.id } })).toBe(1);
-    expect(await prisma.session.count({ where: { userId: outra.id } })).toBe(1);
+    expect(await prisma.user.count({ where: { id: otherUser.id } })).toBe(1);
+    expect(await prisma.session.count({ where: { userId: otherUser.id } })).toBe(1);
   });
 
   it('apaga as listas de que é dono (somem para os outros membros) e só o vínculo nas demais', async () => {

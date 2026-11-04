@@ -67,11 +67,11 @@ describe('cadastro', () => {
   it('e-mail já cadastrado: recusa sem criar outra conta nem abrir sessão', async () => {
     await createUser({ email: 'existente@maratonei.test', password: PASSWORD });
 
-    const repetido = await signUp('existente@maratonei.test');
+    const duplicate = await signUp('existente@maratonei.test');
 
-    expect(repetido.status).toBeGreaterThanOrEqual(400);
-    expect(repetido.status).toBeLessThan(500);
-    expect(repetido.headers['set-cookie']).toBeUndefined();
+    expect(duplicate.status).toBeGreaterThanOrEqual(400);
+    expect(duplicate.status).toBeLessThan(500);
+    expect(duplicate.headers['set-cookie']).toBeUndefined();
     expect(await prisma.user.count({ where: { email: 'existente@maratonei.test' } })).toBe(1);
     expect(await prisma.session.count()).toBe(0);
     expect(outbox).toHaveLength(0);
@@ -171,13 +171,13 @@ describe('login', () => {
   it('senha errada: 401 genérico, igual ao de e-mail inexistente', async () => {
     await createUser({ email: 'errada@maratonei.test', password: PASSWORD });
 
-    const errada = await signIn('errada@maratonei.test', 'senha-incorreta-1');
-    const inexistente = await signIn('ninguem@maratonei.test');
+    const wrongPassword = await signIn('errada@maratonei.test', 'senha-incorreta-1');
+    const missing = await signIn('ninguem@maratonei.test');
 
-    expect(errada.status).toBe(401);
-    expect(inexistente.status).toBe(401);
-    expect(errada.body).toEqual(inexistente.body);
-    expect(errada.headers['set-cookie']).toBeUndefined();
+    expect(wrongPassword.status).toBe(401);
+    expect(missing.status).toBe(401);
+    expect(wrongPassword.body).toEqual(missing.body);
+    expect(wrongPassword.headers['set-cookie']).toBeUndefined();
   });
 });
 
@@ -247,12 +247,12 @@ describe('origem e logs', () => {
     const sem = await request(testApp())
       .post('/api/v1/auth/sign-in/email')
       .send({ email: 'a@b.test', password: PASSWORD });
-    const outra = await request(testApp())
+    const other = await request(testApp())
       .post('/api/v1/auth/sign-up/email')
       .set('Origin', 'https://evil.example')
       .send({ name: 'X', email: 'a@b.test', password: PASSWORD });
 
-    for (const res of [sem, outra]) {
+    for (const res of [sem, other]) {
       expect(res.status).toBe(403);
       expect(res.body).toMatchObject({ code: 'ORIGIN_REJECTED' });
     }

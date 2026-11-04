@@ -102,8 +102,8 @@ describe('parseConfig (AD-16)', () => {
   });
 
   it('falha sem DATABASE_URL, listando a variável', () => {
-    const { DATABASE_URL: _omitido, ...semBanco } = validEnv;
-    const error = configErrorOf(semBanco);
+    const { DATABASE_URL: _omitted, ...envWithoutDatabase } = validEnv;
+    const error = configErrorOf(envWithoutDatabase);
     expect(error.issues.map((i) => i.variable)).toEqual(['DATABASE_URL']);
     expect(error.message).toContain('DATABASE_URL');
   });

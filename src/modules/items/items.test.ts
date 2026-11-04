@@ -175,7 +175,7 @@ describe('GET /lists/:listId/items (CAP-14)', () => {
   async function seeded() {
     const s = await listScenario();
     const t = (offset: number) => new Date(Date.UTC(2026, 0, 1 + offset));
-    const duna = await createListItem(s.list, {
+    const dune = await createListItem(s.list, {
       titleInput: { name: 'Duna', mediaType: 'MOVIE', genreIds: [878, 12] },
       status: 'WANT',
       addedAt: t(0),
@@ -190,7 +190,7 @@ describe('GET /lists/:listId/items (CAP-14)', () => {
       status: 'WATCHED',
       addedAt: t(2),
     });
-    return { s, duna, dark, alien };
+    return { s, dune, dark, alien };
   }
 
   const names = (body: { data: { title: { name: string } }[] }) =>

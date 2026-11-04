@@ -131,14 +131,14 @@ describe('DELETE /lists/:listId/members/:memberId (remover)', () => {
 
   it('membro inexistente ou de outra lista: 404 MEMBER_NOT_FOUND', async () => {
     const s = await listScenario();
-    const outra = await createList();
-    const intruso = await createMembership(outra);
-    for (const id of [randomUUID(), intruso.id]) {
+    const otherList = await createList();
+    const outsider = await createMembership(otherList);
+    for (const id of [randomUUID(), outsider.id]) {
       const res = await s.owner.delete(`/api/v1/lists/${s.list.id}/members/${id}`);
       expect(res.status).toBe(404);
       expect(res.body).toMatchObject({ code: 'MEMBER_NOT_FOUND' });
     }
-    expect(await prisma.listMember.count({ where: { id: intruso.id } })).toBe(1);
+    expect(await prisma.listMember.count({ where: { id: outsider.id } })).toBe(1);
   });
 
   it('memberId malformado: 400 VALIDATION_FAILED', async () => {
@@ -195,13 +195,13 @@ describe('PUT /lists/:listId/members/:memberId/role (CAP-9)', () => {
 
   it('o papel vale só naquela lista', async () => {
     const s = await listScenario();
-    const outra = await createList();
-    await createMembership(outra, { user: s.member.user });
+    const otherList = await createList();
+    await createMembership(otherList, { user: s.member.user });
     await s.owner
       .put(`/api/v1/lists/${s.list.id}/members/${s.ids.member}/role`)
       .send({ role: 'EDITOR' });
 
-    const res = await s.member.patch(`/api/v1/lists/${outra.id}`).send({ name: 'x' });
+    const res = await s.member.patch(`/api/v1/lists/${otherList.id}`).send({ name: 'x' });
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ code: 'INSUFFICIENT_ROLE' });
   });
@@ -252,8 +252,8 @@ describe('PUT /lists/:listId/members/:memberId/role (CAP-9)', () => {
 
   it('membro inexistente ou de outra lista: 404 MEMBER_NOT_FOUND', async () => {
     const s = await listScenario();
-    const intruso = await createMembership(await createList());
-    for (const id of [randomUUID(), intruso.id]) {
+    const outsider = await createMembership(await createList());
+    for (const id of [randomUUID(), outsider.id]) {
       const res = await s.owner
         .put(`/api/v1/lists/${s.list.id}/members/${id}/role`)
         .send({ role: 'EDITOR' });

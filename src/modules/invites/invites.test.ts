@@ -29,14 +29,14 @@ describe('matriz de permissões: ver, gerar, rotacionar e revogar convite', () =
 
   it('owner lê o convite ativo; sem convite: 404 INVITE_NOT_FOUND', async () => {
     const s = await listScenario();
-    const vazio = await s.owner.get(`/api/v1/lists/${s.list.id}/invite`);
-    expect(vazio.status).toBe(404);
-    expect(vazio.body).toMatchObject({ code: 'INVITE_NOT_FOUND' });
+    const empty = await s.owner.get(`/api/v1/lists/${s.list.id}/invite`);
+    expect(empty.status).toBe(404);
+    expect(empty.body).toMatchObject({ code: 'INVITE_NOT_FOUND' });
 
-    const criado = await s.owner.post(`/api/v1/lists/${s.list.id}/invite`).send();
-    const lido = await s.owner.get(`/api/v1/lists/${s.list.id}/invite`);
-    expect(lido.status).toBe(200);
-    expect(lido.body).toEqual(criado.body);
+    const created = await s.owner.post(`/api/v1/lists/${s.list.id}/invite`).send();
+    const fetched = await s.owner.get(`/api/v1/lists/${s.list.id}/invite`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body).toEqual(created.body);
   });
 
   it('owner revoga (204); revogar de novo: 404 INVITE_NOT_FOUND', async () => {
@@ -148,8 +148,8 @@ describe('GET /invites/:token', () => {
 
   it('token inexistente, revogado ou malformado: 404 INVITE_NOT_FOUND', async () => {
     const s = await listScenario();
-    const revogado = await createInvite(s.list, { revoked: true });
-    for (const token of ['inexistente', revogado.token, randomUUID()]) {
+    const revokedInvite = await createInvite(s.list, { revoked: true });
+    for (const token of ['inexistente', revokedInvite.token, randomUUID()]) {
       const res = await s.outsider.get(`/api/v1/invites/${token}`);
       expect(res.status).toBe(404);
       expect(res.body).toMatchObject({ code: 'INVITE_NOT_FOUND' });

@@ -61,10 +61,12 @@ describe('POST /lists (CAP-7)', () => {
 
   it('descrição é opcional e vazia vira null', async () => {
     const agent = await asUser();
-    const semDescricao = await agent.post('/api/v1/lists').send({ name: 'A' });
-    const vazia = await agent.post('/api/v1/lists').send({ name: 'B', description: '   ' });
-    expect(semDescricao.body.description).toBeNull();
-    expect(vazia.body.description).toBeNull();
+    const withoutDescription = await agent.post('/api/v1/lists').send({ name: 'A' });
+    const blankDescription = await agent
+      .post('/api/v1/lists')
+      .send({ name: 'B', description: '   ' });
+    expect(withoutDescription.body.description).toBeNull();
+    expect(blankDescription.body.description).toBeNull();
   });
 
   it.each([
@@ -232,10 +234,10 @@ describe('matriz de permissões: renomear e editar a descrição (PATCH)', () =>
   it('edição parcial preserva o outro campo; description null limpa', async () => {
     const s = await listScenario();
     await s.owner.patch(`/api/v1/lists/${s.list.id}`).send({ description: 'Texto' });
-    const renomeada = await s.owner.patch(`/api/v1/lists/${s.list.id}`).send({ name: 'Só nome' });
-    expect(renomeada.body).toMatchObject({ name: 'Só nome', description: 'Texto' });
-    const limpa = await s.owner.patch(`/api/v1/lists/${s.list.id}`).send({ description: null });
-    expect(limpa.body.description).toBeNull();
+    const renamed = await s.owner.patch(`/api/v1/lists/${s.list.id}`).send({ name: 'Só nome' });
+    expect(renamed.body).toMatchObject({ name: 'Só nome', description: 'Texto' });
+    const cleared = await s.owner.patch(`/api/v1/lists/${s.list.id}`).send({ description: null });
+    expect(cleared.body.description).toBeNull();
   });
 
   it.each([
@@ -299,18 +301,18 @@ describe('matriz de permissões: excluir lista (DELETE)', () => {
 describe('exclusão de conta e listas (schema do banco)', () => {
   it('apagar o usuário apaga as listas de que é dono e só o vínculo nas demais', async () => {
     const s = await listScenario();
-    const alheia = await createList();
-    await createMembership(alheia, { user: s.owner.user });
+    const foreignList = await createList();
+    await createMembership(foreignList, { user: s.owner.user });
     await createInvite(s.list, { createdById: s.owner.user.id });
-    await createInvite(alheia, { createdById: s.owner.user.id });
+    await createInvite(foreignList, { createdById: s.owner.user.id });
 
     await prisma.user.delete({ where: { id: s.owner.user.id } });
 
     expect(await prisma.list.count({ where: { id: s.list.id } })).toBe(0);
     expect(await prisma.listMember.count({ where: { listId: s.list.id } })).toBe(0);
-    expect(await prisma.list.count({ where: { id: alheia.id } })).toBe(1);
-    expect(await prisma.listMember.count({ where: { listId: alheia.id } })).toBe(1);
-    const invite = await prisma.invite.findFirstOrThrow({ where: { listId: alheia.id } });
+    expect(await prisma.list.count({ where: { id: foreignList.id } })).toBe(1);
+    expect(await prisma.listMember.count({ where: { listId: foreignList.id } })).toBe(1);
+    const invite = await prisma.invite.findFirstOrThrow({ where: { listId: foreignList.id } });
     expect(invite.createdById).toBeNull();
   });
 });
@@ -337,11 +339,11 @@ describe('integridade no banco', () => {
 describe('ListDetail.statusCounts', () => {
   it('conta os itens por status, com 0 quando não há nenhum', async () => {
     const s = await listScenario();
-    const outra = await createList();
+    const otherList = await createList();
     await createListItem(s.list, { status: 'WANT' });
     await createListItem(s.list, { status: 'WANT' });
     await createListItem(s.list, { status: 'WATCHED' });
-    await createListItem(outra, { status: 'WATCHING' }); // item de outra lista não conta
+    await createListItem(otherList, { status: 'WATCHING' }); // item de outra lista não conta
 
     const res = await s.member.get(`/api/v1/lists/${s.list.id}`);
 
