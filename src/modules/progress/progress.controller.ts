@@ -1,18 +1,13 @@
-import type { Request, RequestHandler } from 'express';
-import { AppError } from '../../http/app-error.js';
+import type { RequestHandler } from 'express';
+import { membershipOf } from '../../http/access.js';
 import { validate } from '../../http/validate.js';
-import { EpisodeParams, ProgressParams } from './progress.schemas.js';
+import { EpisodeParams } from './progress.schemas.js';
 import * as service from './progress.service.js';
-
-function membershipOf(req: Request) {
-  const membership = req.membership;
-  if (!membership) throw new AppError('LIST_NOT_FOUND');
-  return membership;
-}
+import { ListItemParams } from '../../openapi/common.js';
 
 export const list: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
-  const { params } = validate(req, { params: ProgressParams });
+  const { params } = validate(req, { params: ListItemParams });
   res.json(await service.listProgress(listId, params.itemId));
 };
 

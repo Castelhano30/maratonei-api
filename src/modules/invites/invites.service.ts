@@ -4,8 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { addMember, lockList } from '../lists/index.js';
 import type { Invite, InvitePreview } from './invites.schemas.js';
 
-/** 32 bytes aleatórios em base64url (regra 3 da matriz). */
-export function generateToken(): string {
+function generateToken(): string {
   return randomBytes(32).toString('base64url');
 }
 

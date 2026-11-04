@@ -3,7 +3,6 @@ import argon2 from 'argon2';
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 
-/** Hash argon2id (parâmetros padrão do pacote). */
 export function hashPassword(password: string): Promise<string> {
   return argon2.hash(password, { type: argon2.argon2id });
 }

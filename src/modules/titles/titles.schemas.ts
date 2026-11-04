@@ -2,7 +2,7 @@ import { MediaType, TitleSummary, pageOf } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
 /** O TMDB só pagina até 500. */
-export const SEARCH_MAX_PAGE = 500;
+const SEARCH_MAX_PAGE = 500;
 export const SEARCH_PAGE_SIZE = 20;
 
 export const SearchQuery = z.object({

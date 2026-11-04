@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import { requireListRole } from '../../http/access.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListIdParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
 import { createList, deleteList, getList, listLists, updateList } from './lists.controller.js';
 import {
   CreateListBody,
   ListDetail,
-  ListIdParams,
   ListsQuery,
   ListSummaryPage,
   UpdateListBody,

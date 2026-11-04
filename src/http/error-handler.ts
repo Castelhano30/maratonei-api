@@ -133,7 +133,7 @@ export const routeNotFound: RequestHandler = (_req, _res, next) => {
 };
 
 /**
- * Error handler único (AD-13): tudo sai em `application/problem+json`. Um 500
+ * Error handler único: tudo sai em `application/problem+json`. Um 500
  * nunca expõe stack nem mensagem interna; o erro original vai para o log com o
  * `requestId`.
  */

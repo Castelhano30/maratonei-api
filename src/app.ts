@@ -49,7 +49,7 @@ function defaultRateLimit(): RateLimitOptions {
 export const API_PREFIX = '/api/v1';
 
 /**
- * Monta a aplicação. A ordem do pipeline é fixa (AD-13):
+ * A ordem do pipeline é fixa:
  * helmet → pino-http → origin-check → [auth handler] → json → /api/v1 → error handler.
  */
 export function createApp(options: AppOptions = {}): Express {
@@ -69,7 +69,7 @@ export function createApp(options: AppOptions = {}): Express {
   // O limite do Better Auth lê X-Forwarded-For do cliente (contornável); este usa o IP do Express.
   if (rateLimit.auth) app.use(AUTH_BASE_PATH, createWriteLimiter(rateLimit.auth));
 
-  // Better Auth: lê o corpo por conta própria, por isso entra antes do parser JSON (AD-6).
+  // Better Auth: lê o corpo por conta própria, por isso entra antes do parser JSON.
   app.all(`${AUTH_BASE_PATH}/*splat`, createAuthHandler());
 
   app.use(requireJson);

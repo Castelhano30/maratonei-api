@@ -6,6 +6,8 @@ export interface RatingStats {
   count: number;
 }
 
+export const NO_RATINGS: RatingStats = { average: null, count: 0 };
+
 const ratingInclude = {
   member: { select: { user: { select: { id: true, name: true, image: true } } } },
 } satisfies Prisma.RatingInclude;
@@ -22,9 +24,7 @@ function round2(value: number): number {
 
 /** Média (2 casas) e contagem das notas de cada item; item sem nota → `{average: null, count: 0}`. */
 export async function ratingStatsByItem(itemIds: string[]): Promise<Map<string, RatingStats>> {
-  const stats = new Map<string, RatingStats>(
-    itemIds.map((id) => [id, { average: null, count: 0 }]),
-  );
+  const stats = new Map<string, RatingStats>(itemIds.map((id) => [id, NO_RATINGS]));
   if (itemIds.length === 0) return stats;
   const groups = await prisma.rating.groupBy({
     by: ['listItemId'],
@@ -41,7 +41,7 @@ export async function ratingStatsByItem(itemIds: string[]): Promise<Map<string, 
   return stats;
 }
 
-/** Nota de cada membro e a média (RF-19). Sem paginação: limitada por `MAX_LIST_MEMBERS`. */
+/** Nota de cada membro e a média. Sem paginação: limitada por `MAX_LIST_MEMBERS`. */
 export async function listRatings(itemId: string): Promise<RatingList> {
   const [rows, stats] = await Promise.all([
     prisma.rating.findMany({
@@ -51,11 +51,11 @@ export async function listRatings(itemId: string): Promise<RatingList> {
     }),
     ratingStatsByItem([itemId]),
   ]);
-  const { average, count } = stats.get(itemId) ?? { average: null, count: 0 };
+  const { average, count } = stats.get(itemId) ?? NO_RATINGS;
   return { average, count, data: rows.map(toRating) };
 }
 
-/** Cria ou edita a nota do próprio membro (RF-18). */
+/** Cria ou edita a nota do próprio membro. */
 export async function setOwnRating(
   itemId: string,
   memberId: string,

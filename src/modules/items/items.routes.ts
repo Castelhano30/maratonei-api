@@ -1,16 +1,14 @@
 import { Router } from 'express';
 import { requireListRole } from '../../http/access.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListIdParams, ListItemParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
 import { add, get, list, random, remove, setStatus } from './items.controller.js';
 import {
   AddItemBody,
-  ItemParams,
   ItemsQuery,
   ListItem,
   ListItemPage,
-  ListParams,
   RandomItem,
   RandomQuery,
   SetItemStatusBody,
@@ -31,7 +29,7 @@ registry.registerPath({
   operationId: 'listItems',
   tags: ['items'],
   summary: 'Itens da lista, com filtros por status, tipo e gênero (MEMBER)',
-  request: { params: ListParams, query: ItemsQuery },
+  request: { params: ListIdParams, query: ItemsQuery },
   responses: {
     200: {
       description: 'Página de itens, mais recentes primeiro por padrão.',
@@ -50,7 +48,7 @@ registry.registerPath({
   tags: ['items'],
   summary: 'Sorteia um item pendente (`WANT`) da lista: "O que assistir hoje?" (MEMBER)',
   description: 'Sem itens pendentes (do tipo pedido), responde 200 com `data: null`.',
-  request: { params: ListParams, query: RandomQuery },
+  request: { params: ListIdParams, query: RandomQuery },
   responses: {
     200: {
       description: 'O item sorteado ou `null`.',
@@ -69,7 +67,7 @@ registry.registerPath({
   tags: ['items'],
   summary: 'Adiciona um título à lista (EDITOR)',
   request: {
-    params: ListParams,
+    params: ListIdParams,
     body: { content: { 'application/json': { schema: AddItemBody } } },
   },
   responses: {
@@ -91,7 +89,7 @@ registry.registerPath({
   operationId: 'getItem',
   tags: ['items'],
   summary: 'Um item da lista (MEMBER)',
-  request: { params: ItemParams },
+  request: { params: ListItemParams },
   responses: {
     200: { description: 'O item.', content: { 'application/json': { schema: ListItem } } },
     400: invalid,
@@ -106,7 +104,7 @@ registry.registerPath({
   operationId: 'setItemStatus',
   tags: ['items'],
   summary: 'Altera o status coletivo do item (MEMBER; a última escrita prevalece)',
-  request: { params: ItemParams, body: statusBody },
+  request: { params: ListItemParams, body: statusBody },
   responses: {
     200: { description: 'Item atualizado.', content: { 'application/json': { schema: ListItem } } },
     400: invalid,
@@ -121,7 +119,7 @@ registry.registerPath({
   operationId: 'patchItem',
   tags: ['items'],
   summary: 'Altera o status coletivo do item (MEMBER); equivale a `PUT .../status`',
-  request: { params: ItemParams, body: statusBody },
+  request: { params: ListItemParams, body: statusBody },
   responses: {
     200: { description: 'Item atualizado.', content: { 'application/json': { schema: ListItem } } },
     400: invalid,
@@ -136,7 +134,7 @@ registry.registerPath({
   operationId: 'removeItem',
   tags: ['items'],
   summary: 'Remove o item da lista (EDITOR)',
-  request: { params: ItemParams },
+  request: { params: ListItemParams },
   responses: {
     204: { description: 'Item removido.' },
     400: invalid,

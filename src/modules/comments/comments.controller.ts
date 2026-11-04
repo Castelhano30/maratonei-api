@@ -1,24 +1,19 @@
-import type { Request, RequestHandler } from 'express';
-import { AppError } from '../../http/app-error.js';
+import type { RequestHandler } from 'express';
+import { membershipOf } from '../../http/access.js';
 import { validate } from '../../http/validate.js';
-import { CommentBody, CommentParams, CommentsParams, CommentsQuery } from './comments.schemas.js';
+import { CommentBody, CommentParams, CommentsQuery } from './comments.schemas.js';
 import * as service from './comments.service.js';
-
-function membershipOf(req: Request) {
-  const membership = req.membership;
-  if (!membership) throw new AppError('LIST_NOT_FOUND');
-  return membership;
-}
+import { ListItemParams } from '../../openapi/common.js';
 
 export const list: RequestHandler = async (req, res) => {
   membershipOf(req);
-  const { params, query } = validate(req, { params: CommentsParams, query: CommentsQuery });
+  const { params, query } = validate(req, { params: ListItemParams, query: CommentsQuery });
   res.json(await service.listComments(params.itemId, query));
 };
 
 export const create: RequestHandler = async (req, res) => {
   const { id } = membershipOf(req);
-  const { params, body } = validate(req, { params: CommentsParams, body: CommentBody });
+  const { params, body } = validate(req, { params: ListItemParams, body: CommentBody });
   res.status(201).json(await service.createComment(params.itemId, id, body.body));
 };
 

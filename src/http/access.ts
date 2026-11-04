@@ -1,11 +1,11 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { z } from 'zod';
 import type { ListRole } from '../generated/prisma/client.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from './app-error.js';
 
 export interface Membership {
-  /** `ListMember.id`: é ele (e não o `userId`) que identifica autoria nas fases seguintes. */
+  /** `ListMember.id`: é ele (e não o `userId`) que identifica autoria. */
   id: string;
   listId: string;
   userId: string;
@@ -22,7 +22,7 @@ declare global {
   }
 }
 
-/** Hierarquia `OWNER ⊃ EDITOR ⊃ MEMBER` (AD-7). */
+/** Hierarquia `OWNER ⊃ EDITOR ⊃ MEMBER`. */
 const ROLE_RANK: Record<ListRole, number> = { MEMBER: 1, EDITOR: 2, OWNER: 3 };
 
 export function hasRole(role: ListRole, minimum: ListRole): boolean {
@@ -31,8 +31,14 @@ export function hasRole(role: ListRole, minimum: ListRole): boolean {
 
 const listIdSchema = z.uuid();
 
+/** Papel já resolvido por `requireListRole` na rota atual. */
+export function membershipOf(req: Request): Membership {
+  if (!req.membership) throw new AppError('LIST_NOT_FOUND');
+  return req.membership;
+}
+
 /**
- * Única porta de autorização de lista (AD-7). Lê só `ListMember.role` da rota
+ * Única porta de autorização de lista. Lê só `ListMember.role` da rota
  * `:listId`: não membro, lista inexistente ou id malformado → 404 `LIST_NOT_FOUND`
  * (não revela que a lista existe); papel abaixo do mínimo → 403 `INSUFFICIENT_ROLE`.
  * Deve vir depois de `requireSession`.

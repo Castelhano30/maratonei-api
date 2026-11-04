@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { membershipOf } from '../../http/access.js';
 import { AppError } from '../../http/app-error.js';
 import { validate } from '../../http/validate.js';
 import { CreateListBody, ListsQuery, UpdateListBody } from './lists.schemas.js';
@@ -17,21 +18,18 @@ export const createList: RequestHandler = async (req, res) => {
 };
 
 export const getList: RequestHandler = async (req, res) => {
-  const membership = req.membership;
-  if (!membership) throw new AppError('LIST_NOT_FOUND');
+  const membership = membershipOf(req);
   res.json(await service.getList(membership.listId, membership.role));
 };
 
 export const updateList: RequestHandler = async (req, res) => {
-  const membership = req.membership;
-  if (!membership) throw new AppError('LIST_NOT_FOUND');
+  const membership = membershipOf(req);
   const { body } = validate(req, { body: UpdateListBody });
   res.json(await service.updateList(membership.listId, membership.role, body));
 };
 
 export const deleteList: RequestHandler = async (req, res) => {
-  const membership = req.membership;
-  if (!membership) throw new AppError('LIST_NOT_FOUND');
+  const membership = membershipOf(req);
   await service.deleteList(membership.listId);
   res.status(204).end();
 };

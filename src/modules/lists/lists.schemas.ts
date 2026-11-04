@@ -2,8 +2,6 @@ import { PageQuery } from '../../http/pagination.js';
 import { ListRole, UserSummary, pageOf } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
-export const ListIdParams = z.object({ listId: z.uuid() });
-
 /** Nome 1–80 e descrição até 500 caracteres, após trim. */
 const listName = z.string().trim().min(1).max(80).openapi({ example: 'Maratona de sábado' });
 const listDescription = z.string().trim().max(500);

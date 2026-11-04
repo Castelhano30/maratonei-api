@@ -3,7 +3,7 @@ import { AppError } from '../../http/app-error.js';
 import { pageArgs, toPage, type Page } from '../../http/pagination.js';
 import type { ItemStatus } from '../../generated/prisma/client.js';
 import { prisma, Prisma } from '../../lib/prisma.js';
-import { ratingStatsByItem, type RatingStats } from '../ratings/index.js';
+import { NO_RATINGS, ratingStatsByItem, type RatingStats } from '../ratings/index.js';
 import { ensureTitle, refreshTitle, toTitleSummary } from '../titles/index.js';
 import type { AddItemBody, ItemsQuery, ListItem, RandomQuery } from './items.schemas.js';
 
@@ -13,8 +13,6 @@ const itemInclude = {
 } satisfies Prisma.ListItemInclude;
 
 type ItemRow = Prisma.ListItemGetPayload<{ include: typeof itemInclude }>;
-
-const NO_RATINGS: RatingStats = { average: null, count: 0 };
 
 function toListItem(row: ItemRow, stats: RatingStats = NO_RATINGS): ListItem {
   return {
@@ -83,7 +81,7 @@ export async function listItems(listId: string, query: ItemsQuery): Promise<Page
 }
 
 /**
- * Sorteio "O que assistir hoje?" (RF-27): um item `WANT` ao acaso, opcionalmente
+ * Sorteio "O que assistir hoje?":um item `WANT` ao acaso, opcionalmente
  * de um tipo; sem pendentes → `null`.
  */
 export async function randomItem(
@@ -158,7 +156,7 @@ export async function getItem(listId: string, itemId: string): Promise<ListItem>
 }
 
 /**
- * Adiciona o título à lista (RF-14). Duplicado (checado antes de chamar o TMDB
+ * Adiciona o título à lista. Duplicado (checado antes de chamar o TMDB
  * e garantido pela unique `(listId, titleId)`) → 409 `TITLE_ALREADY_IN_LIST`.
  */
 export async function addItem(
@@ -185,7 +183,7 @@ export async function removeItem(listId: string, itemId: string): Promise<void> 
   if (count === 0) throw new AppError('ITEM_NOT_FOUND');
 }
 
-/** Status coletivo: a última escrita prevalece (regra 11). */
+/** Status coletivo: a última escrita prevalece. */
 export async function setItemStatus(
   listId: string,
   itemId: string,

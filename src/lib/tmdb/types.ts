@@ -75,7 +75,7 @@ export interface TmdbProviders {
 }
 
 /**
- * Porta do TMDB (AD-11). As implementações lançam `AppError`:
+ * Porta do TMDB. As implementações lançam `AppError`:
  * `TMDB_UNAVAILABLE` (sem chave, rede, timeout, 5xx, limite) e `TITLE_NOT_FOUND`.
  */
 export interface TmdbClient {

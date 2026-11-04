@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { requireItem, requireListRole } from '../../http/access.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListItemParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
 import { list, markMine, unmarkMine } from './progress.controller.js';
-import { EpisodeParams, ProgressList, ProgressParams, WatchedEpisode } from './progress.schemas.js';
+import { EpisodeParams, ProgressList, WatchedEpisode } from './progress.schemas.js';
 
 const unauthenticated = problemResponse('Sem sessão (`UNAUTHENTICATED`).');
 const invalid = problemResponse(
@@ -22,7 +22,7 @@ registry.registerPath({
   summary: 'Progresso de cada membro numa série (MEMBER)',
   description:
     'Um registro por membro da lista, em ordem de entrada, inclusive quem não marcou nada. O ponto atual é o maior `(season, episode)` marcado.',
-  request: { params: ProgressParams },
+  request: { params: ListItemParams },
   responses: {
     200: {
       description: 'Progresso por membro.',

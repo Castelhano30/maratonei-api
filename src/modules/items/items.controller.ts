@@ -1,21 +1,9 @@
-import type { Request, RequestHandler } from 'express';
-import { AppError } from '../../http/app-error.js';
+import type { RequestHandler } from 'express';
+import { membershipOf } from '../../http/access.js';
 import { validate } from '../../http/validate.js';
-import {
-  AddItemBody,
-  ItemParams,
-  ItemsQuery,
-  ListParams,
-  RandomQuery,
-  SetItemStatusBody,
-} from './items.schemas.js';
+import { AddItemBody, ItemsQuery, RandomQuery, SetItemStatusBody } from './items.schemas.js';
 import * as service from './items.service.js';
-
-function membershipOf(req: Request) {
-  const membership = req.membership;
-  if (!membership) throw new AppError('LIST_NOT_FOUND');
-  return membership;
-}
+import { ListIdParams, ListItemParams } from '../../openapi/common.js';
 
 export const list: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
@@ -25,7 +13,7 @@ export const list: RequestHandler = async (req, res) => {
 
 export const random: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
-  const { query } = validate(req, { params: ListParams, query: RandomQuery });
+  const { query } = validate(req, { params: ListIdParams, query: RandomQuery });
   res.json(await service.randomItem(listId, query));
 };
 
@@ -37,19 +25,19 @@ export const add: RequestHandler = async (req, res) => {
 
 export const get: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
-  const { params } = validate(req, { params: ItemParams });
+  const { params } = validate(req, { params: ListItemParams });
   res.json(await service.getItem(listId, params.itemId));
 };
 
 export const remove: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
-  const { params } = validate(req, { params: ItemParams });
+  const { params } = validate(req, { params: ListItemParams });
   await service.removeItem(listId, params.itemId);
   res.status(204).end();
 };
 
 export const setStatus: RequestHandler = async (req, res) => {
   const { listId } = membershipOf(req);
-  const { params, body } = validate(req, { params: ItemParams, body: SetItemStatusBody });
+  const { params, body } = validate(req, { params: ListItemParams, body: SetItemStatusBody });
   res.json(await service.setItemStatus(listId, params.itemId, body.status));
 };

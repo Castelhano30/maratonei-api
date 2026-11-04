@@ -1,13 +1,11 @@
-import { UserSummary } from '../../openapi/common.js';
+import { UserSummary, ListItemParams } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
-
-export const ProgressParams = z.object({ listId: z.uuid(), itemId: z.uuid() });
 
 /** Teto de temporada/episódio quando a série não tem `seasons` conhecido (limita linhas por membro). */
 const season = z.coerce.number().int().min(1).max(200);
 const episode = z.coerce.number().int().min(1).max(2000);
 
-export const EpisodeParams = ProgressParams.extend({ season, episode });
+export const EpisodeParams = ListItemParams.extend({ season, episode });
 
 export const WatchedEpisode = z
   .object({

@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { requireListRole } from '../../http/access.js';
 import { PageQuery } from '../../http/pagination.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListIdParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
-import { ListIdParams } from '../lists/lists.schemas.js';
 import { Member, MemberPage, MemberParams, SetRoleBody } from '../lists/index.js';
 import { getMembers, leave, remove, setRole } from './members.controller.js';
 

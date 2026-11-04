@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireItem, requireListRole } from '../../http/access.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListItemParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
 import { create, list, remove, update } from './comments.controller.js';
@@ -9,7 +9,6 @@ import {
   CommentBody,
   CommentPage,
   CommentParams,
-  CommentsParams,
   CommentsQuery,
 } from './comments.schemas.js';
 
@@ -30,7 +29,7 @@ registry.registerPath({
   operationId: 'listComments',
   tags: ['comments'],
   summary: 'Comentários do item, paginados (MEMBER)',
-  request: { params: CommentsParams, query: CommentsQuery },
+  request: { params: ListItemParams, query: CommentsQuery },
   responses: {
     200: {
       description: 'Página de comentários, mais recentes primeiro por padrão.',
@@ -48,7 +47,7 @@ registry.registerPath({
   operationId: 'createComment',
   tags: ['comments'],
   summary: 'Comenta o item (MEMBER)',
-  request: { params: CommentsParams, body: bodyOf },
+  request: { params: ListItemParams, body: bodyOf },
   responses: {
     201: {
       description: 'Comentário criado.',

@@ -14,7 +14,7 @@ export const REDACT_PATHS = [
 
 export const REQUEST_ID_HEADER = 'X-Request-Id';
 
-/** Logger da aplicação, com redact de cookie, authorization e set-cookie (AD-13). */
+/** Logger da aplicação, com redact de cookie, authorization e set-cookie. */
 export function createLogger(
   options: Pick<Config, 'LOG_LEVEL'>,
   destination?: DestinationStream,

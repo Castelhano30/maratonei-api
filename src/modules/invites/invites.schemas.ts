@@ -1,7 +1,5 @@
 import { z } from '../../openapi/registry.js';
 
-export const InviteListParams = z.object({ listId: z.uuid() });
-
 export const InviteTokenParams = z.object({
   token: z.string().min(1).max(128).openapi({ description: 'Token do link de convite.' }),
 });

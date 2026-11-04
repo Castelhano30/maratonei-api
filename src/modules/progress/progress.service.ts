@@ -3,7 +3,7 @@ import { prisma, Prisma } from '../../lib/prisma.js';
 import { getItemTitleRef, type ItemTitleRef } from '../items/index.js';
 import type { ProgressList, WatchedEpisode } from './progress.schemas.js';
 
-/** O progresso só vale para séries (regra 12); devolve as temporadas conhecidas. */
+/** O progresso só vale para séries; devolve as temporadas conhecidas. */
 async function seriesOf(listId: string, itemId: string): Promise<ItemTitleRef> {
   const ref = await getItemTitleRef(listId, itemId);
   if (ref.mediaType !== 'TV') throw new AppError('NOT_A_SERIES');
@@ -47,7 +47,7 @@ async function assertEpisodeExists(
   if (problem) throw new AppError('VALIDATION_FAILED', { errors: [problem] });
 }
 
-/** Progresso de cada membro da lista, em ordem de entrada (RF-21..RF-23). */
+/** Progresso de cada membro da lista, em ordem de entrada. */
 export async function listProgress(listId: string, itemId: string): Promise<ProgressList> {
   await seriesOf(listId, itemId);
   const [members, rows] = await Promise.all([

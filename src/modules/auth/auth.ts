@@ -23,12 +23,12 @@ const DAY_SECONDS = 24 * 60 * 60;
 const RESET_TOKEN_SECONDS = 60 * 60;
 const RESET_PASSWORD_PATH = '/redefinir-senha';
 /** Janela em que a sessão conta como "fresca" para ações sensíveis (excluir a conta). */
-export const SESSION_FRESH_SECONDS = 5 * 60;
-export const NAME_MAX_LENGTH = 80;
+const SESSION_FRESH_SECONDS = 5 * 60;
+const NAME_MAX_LENGTH = 80;
 const CREDENTIAL_PROVIDER_ID = 'credential';
 
 /** Opções do provedor Google aceitas pelo Better Auth (usadas só para fakes nos testes). */
-export type GoogleProviderOptions = NonNullable<
+type GoogleProviderOptions = NonNullable<
   NonNullable<BetterAuthOptions['socialProviders']>['google']
 >;
 
@@ -55,7 +55,7 @@ export interface AuthOptions {
 }
 
 /**
- * Única instância do Better Auth (AD-6): nada fora de `modules/auth` importa o pacote.
+ * Única instância do Better Auth: nada fora de `modules/auth` importa o pacote.
  * Cadastro com senha abre a sessão na hora, sem verificação de e-mail (desligada por ora; a coluna
  * `emailVerified` segue gravada como `false` para a verificação voltar sem migração).
  */
@@ -125,16 +125,10 @@ export function createAuth(options: AuthOptions = {}) {
             if (!(data.emailVerified === true || path.startsWith('/sign-up'))) {
               return Promise.resolve(false);
             }
-            const name = typeof data.name === 'string' ? data.name.trim() : '';
             if (path.startsWith('/sign-up')) {
-              if (name.length < 1 || name.length > NAME_MAX_LENGTH) {
-                throw new APIError('BAD_REQUEST', {
-                  code: 'INVALID_NAME',
-                  message: `O nome deve ter de 1 a ${NAME_MAX_LENGTH} caracteres.`,
-                });
-              }
-              return Promise.resolve({ data: { ...data, name } });
+              return Promise.resolve({ data: { ...data, name: validName(data.name) } });
             }
+            const name = typeof data.name === 'string' ? data.name.trim() : '';
             // Google: o nome vem do provedor; apara em vez de recusar o login.
             return Promise.resolve({
               data: { ...data, name: name.slice(0, NAME_MAX_LENGTH) || 'Usuário' },
@@ -153,14 +147,7 @@ export function createAuth(options: AuthOptions = {}) {
           before: (data) => {
             const changes: Record<string, unknown> = {};
             if (data.name !== undefined) {
-              const name = typeof data.name === 'string' ? data.name.trim() : '';
-              if (name.length < 1 || name.length > NAME_MAX_LENGTH) {
-                throw new APIError('BAD_REQUEST', {
-                  code: 'INVALID_NAME',
-                  message: `O nome deve ter de 1 a ${NAME_MAX_LENGTH} caracteres.`,
-                });
-              }
-              changes.name = name;
+              changes.name = validName(data.name);
             }
             if (data.image !== undefined && data.image !== null && !isHttpsUrl(data.image)) {
               throw new APIError('BAD_REQUEST', {
@@ -225,6 +212,17 @@ export async function revokeUnprovenAccess(userId: string): Promise<void> {
   ]);
 }
 
+function validName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (name.length < 1 || name.length > NAME_MAX_LENGTH) {
+    throw new APIError('BAD_REQUEST', {
+      code: 'INVALID_NAME',
+      message: `O nome deve ter de 1 a ${NAME_MAX_LENGTH} caracteres.`,
+    });
+  }
+  return name;
+}
+
 function isHttpsUrl(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   try {
@@ -238,7 +236,7 @@ export type Auth = ReturnType<typeof createAuth>;
 
 export const auth: Auth = createAuth();
 
-/** Handler Node do Better Auth: `app.ts` monta só isto, sem importar o pacote (AD-6). */
+/** Handler Node do Better Auth: `app.ts` monta só isto, sem importar o pacote. */
 export function createAuthHandler(instance: Auth = auth) {
   return toNodeHandler(instance);
 }

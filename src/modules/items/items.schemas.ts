@@ -2,9 +2,6 @@ import { PageQuery } from '../../http/pagination.js';
 import { ItemStatus, MediaType, TitleSummary, UserSummary, pageOf } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
-export const ListParams = z.object({ listId: z.uuid() });
-export const ItemParams = z.object({ listId: z.uuid(), itemId: z.uuid() });
-
 export const ItemsQuery = PageQuery.extend({
   status: ItemStatus.optional(),
   mediaType: MediaType.optional(),

@@ -1,11 +1,10 @@
 import { PageQuery } from '../../http/pagination.js';
-import { UserSummary, pageOf } from '../../openapi/common.js';
+import { UserSummary, pageOf, ListItemParams } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
-export const MAX_COMMENT_LENGTH = 2000;
+const MAX_COMMENT_LENGTH = 2000;
 
-export const CommentsParams = z.object({ listId: z.uuid(), itemId: z.uuid() });
-export const CommentParams = CommentsParams.extend({ commentId: z.uuid() });
+export const CommentParams = ListItemParams.extend({ commentId: z.uuid() });
 
 export const CommentsQuery = PageQuery.extend({
   sort: z.enum(['createdAt:desc', 'createdAt:asc']).default('createdAt:desc'),

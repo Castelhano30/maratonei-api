@@ -9,7 +9,7 @@ function hasBody(req: Request): boolean {
 }
 
 /**
- * Corpos só em `application/json` (AD-5): uma mutação que traz corpo com outro
+ * Corpos só em `application/json`: uma mutação que traz corpo com outro
  * `Content-Type` recebe 415 `UNSUPPORTED_MEDIA_TYPE`.
  */
 export const requireJson: RequestHandler = (req, _res, next) => {

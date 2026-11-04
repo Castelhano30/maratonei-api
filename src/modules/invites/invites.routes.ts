@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireListRole } from '../../http/access.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListIdParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
 import {
@@ -10,7 +10,7 @@ import {
   revokeInvite,
   rotateInvite,
 } from './invites.controller.js';
-import { Invite, InviteListParams, InvitePreview, InviteTokenParams } from './invites.schemas.js';
+import { Invite, InvitePreview, InviteTokenParams } from './invites.schemas.js';
 
 const unauthenticated = problemResponse('Sem sessão (`UNAUTHENTICATED`).');
 const notFound = problemResponse('Lista inexistente ou usuário não membro (`LIST_NOT_FOUND`).');
@@ -27,7 +27,7 @@ registry.registerPath({
   operationId: 'getListInvite',
   tags: ['invites'],
   summary: 'Convite ativo da lista (OWNER)',
-  request: { params: InviteListParams },
+  request: { params: ListIdParams },
   responses: {
     200: { description: 'Convite ativo.', content: { 'application/json': { schema: Invite } } },
     401: unauthenticated,
@@ -42,7 +42,7 @@ registry.registerPath({
   operationId: 'rotateListInvite',
   tags: ['invites'],
   summary: 'Gera o convite ou rotaciona, revogando o anterior (OWNER)',
-  request: { params: InviteListParams },
+  request: { params: ListIdParams },
   responses: {
     201: {
       description: 'Novo convite ativo.',
@@ -60,7 +60,7 @@ registry.registerPath({
   operationId: 'revokeListInvite',
   tags: ['invites'],
   summary: 'Revoga o convite ativo (OWNER)',
-  request: { params: InviteListParams },
+  request: { params: ListIdParams },
   responses: {
     204: { description: 'Convite revogado.' },
     401: unauthenticated,

@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { requireItem, requireListRole } from '../../http/access.js';
-import { problemResponse } from '../../openapi/common.js';
+import { problemResponse, ListItemParams } from '../../openapi/common.js';
 import { registry } from '../../openapi/registry.js';
 import { requireSession } from '../auth/index.js';
 import { list, removeMine, setMine } from './ratings.controller.js';
-import { Rating, RatingList, RatingParams, SetRatingBody } from './ratings.schemas.js';
+import { Rating, RatingList, SetRatingBody } from './ratings.schemas.js';
 
 const unauthenticated = problemResponse('Sem sessão (`UNAUTHENTICATED`).');
 const invalid = problemResponse('Entrada inválida (`VALIDATION_FAILED`).');
@@ -18,7 +18,7 @@ registry.registerPath({
   operationId: 'listRatings',
   tags: ['ratings'],
   summary: 'Nota de cada membro e a média do item (MEMBER)',
-  request: { params: RatingParams },
+  request: { params: ListItemParams },
   responses: {
     200: { description: 'Notas e média.', content: { 'application/json': { schema: RatingList } } },
     400: invalid,
@@ -34,7 +34,7 @@ registry.registerPath({
   tags: ['ratings'],
   summary: 'Cria ou edita a própria nota, de 1 a 5 estrelas (MEMBER)',
   request: {
-    params: RatingParams,
+    params: ListItemParams,
     body: { content: { 'application/json': { schema: SetRatingBody } } },
   },
   responses: {
@@ -54,7 +54,7 @@ registry.registerPath({
   operationId: 'removeMyRating',
   tags: ['ratings'],
   summary: 'Remove a própria nota; idempotente (MEMBER)',
-  request: { params: RatingParams },
+  request: { params: ListItemParams },
   responses: {
     204: { description: 'Nota removida (ou inexistente).' },
     400: invalid,

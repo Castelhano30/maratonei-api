@@ -147,7 +147,7 @@ export interface AddMemberResult {
 }
 
 /**
- * Único ponto que cria `ListMember` de papel `MEMBER` (RF-08/09). Trava a linha
+ * Único ponto que cria `ListMember` de papel `MEMBER`. Trava a linha
  * da lista (`FOR UPDATE`) para que o teto `MAX_LIST_MEMBERS` valha sob
  * concorrência. Já ser membro é sucesso idempotente, mesmo com a lista cheia.
  */

@@ -1,8 +1,6 @@
 import { UserSummary } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
-export const RatingParams = z.object({ listId: z.uuid(), itemId: z.uuid() });
-
 export const SetRatingBody = z
   .object({ stars: z.number().int().min(1).max(5) })
   .openapi('SetRatingBody');

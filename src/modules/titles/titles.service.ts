@@ -12,15 +12,15 @@ import {
 } from '../../lib/tmdb/index.js';
 import { SEARCH_PAGE_SIZE, type TitleDetail } from './titles.schemas.js';
 
-/** Idade máxima da linha `Title` antes da atualização preguiçosa (RF-14, regra 5). */
+/** Idade máxima da linha `Title` antes da atualização preguiçosa. */
 export const TITLE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Cache em memória do detalhe completo (elenco e trailer não persistem). */
-export const DETAIL_MEMORY_TTL_MS = 60 * 60 * 1000;
+const DETAIL_MEMORY_TTL_MS = 60 * 60 * 1000;
 export const RECOMMENDATIONS_MEMORY_TTL_MS = 60 * 60 * 1000;
 
 /** Cache em memória de uma temporada (episódios não persistem). */
 export const SEASON_MEMORY_TTL_MS = 60 * 60 * 1000;
-/** Cache em memória dos provedores de streaming (não persistem; regra 5). */
+/** Cache em memória dos provedores de streaming (não persistem). */
 export const PROVIDERS_MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Cache negativo: título/temporada que o TMDB disse não existir (404). */
@@ -40,7 +40,6 @@ const providersMemory: Store<TmdbProviders> = new Map();
 /** Chamadas ao TMDB em andamento, para que pedidos iguais compartilhem uma só. */
 const inflight = new Map<Store<never>, Map<string, Promise<unknown>>>();
 
-/** Zera os caches em memória (testes). */
 export function clearTitleCache(): void {
   memory.clear();
   recommendationsMemory.clear();
@@ -109,14 +108,14 @@ function remember<T>(store: Store<T>, key: string, ttlMs: number, entry: Entry<T
   store.set(key, entry);
 }
 
-/** Episódios de uma temporada (RF-21); temporada inexistente → 404 `TITLE_NOT_FOUND`. */
+/** Episódios de uma temporada;temporada inexistente → 404 `TITLE_NOT_FOUND`. */
 export function getSeason(tmdbId: number, season: number): Promise<TmdbSeasonDetail> {
   return cached(seasonMemory, `${tmdbId}:${season}`, SEASON_MEMORY_TTL_MS, () =>
     getTmdb().getSeason(tmdbId, season),
   );
 }
 
-/** Onde assistir no Brasil (RF-26), com cache de 24 h. */
+/** Onde assistir no Brasil, com cache de 24 h. */
 export function getProviders(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbProviders> {
   return cached(providersMemory, `${mediaType}:${tmdbId}`, PROVIDERS_MEMORY_TTL_MS, () =>
     getTmdb().getProviders(mediaType, tmdbId),
@@ -230,7 +229,7 @@ function detailFromRow(row: Title): TitleDetail {
 }
 
 /**
- * Detalhe do título (RF-13). TMDB primeiro (cache em memória de 1 h); com o TMDB
+ * Detalhe do título. TMDB primeiro (cache em memória de 1 h); com o TMDB
  * fora, serve a linha `Title` se existir (sem elenco e trailer), senão 503.
  */
 export async function getTitleDetail(
