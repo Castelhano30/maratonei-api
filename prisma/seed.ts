@@ -20,6 +20,15 @@ const SEED_PROGRESS_EPISODES = [
 ];
 const SEED_COMMENT = 'Ótimo para a próxima maratona!';
 const DEFAULT_SEED_E2E_PASSWORD = 'maratonei-e2e-123';
+// Contas de teste para uso manual (o web as lista na tela de login em desenvolvimento).
+const DEFAULT_SEED_TEST_PASSWORD = 'maratonei-teste-123';
+const SEED_TEST_LIST_NAME = 'Maratona do grupo';
+const SEED_TEST_LIST_DESCRIPTION = 'Lista compartilhada pelas contas de teste do seed.';
+const SEED_TEST_USERS = [
+  { email: 'ana@maratonei.local', name: 'Ana Teste', role: 'OWNER' },
+  { email: 'bruno@maratonei.local', name: 'Bruno Teste', role: 'EDITOR' },
+  { email: 'carla@maratonei.local', name: 'Carla Teste', role: 'MEMBER' },
+] as const;
 
 // Títulos de exemplo (dados estáticos: o seed nunca chama o TMDB).
 interface SeedTitle {
@@ -84,6 +93,55 @@ function databaseHost(connectionString: string): string {
   return url.hostname.toLowerCase();
 }
 
+type Tx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+
+async function upsertCredential(tx: Tx, userId: string, passwordHash: string): Promise<void> {
+  const credential = await tx.account.findFirst({ where: { userId, providerId: 'credential' } });
+  if (credential) {
+    await tx.account.update({
+      where: { id: credential.id },
+      data: { accountId: userId, password: passwordHash },
+    });
+  } else {
+    await tx.account.create({
+      data: { userId, providerId: 'credential', accountId: userId, password: passwordHash },
+    });
+  }
+}
+
+// Três contas verificadas numa lista compartilhada (dona, editora e membro), idempotente.
+async function seedTestUsers(tx: Tx, passwordHash: string): Promise<void> {
+  const ids = new Map<string, string>();
+  for (const { email, name } of SEED_TEST_USERS) {
+    const user = await tx.user.upsert({
+      where: { email },
+      create: { email, name, emailVerified: true },
+      update: { name, emailVerified: true },
+    });
+    await upsertCredential(tx, user.id, passwordHash);
+    ids.set(email, user.id);
+  }
+  const ownerId = ids.get(SEED_TEST_USERS[0].email)!;
+  const existing = await tx.list.findFirst({
+    where: { ownerId, name: SEED_TEST_LIST_NAME },
+    select: { id: true },
+  });
+  const list =
+    existing ??
+    (await tx.list.create({
+      data: { name: SEED_TEST_LIST_NAME, description: SEED_TEST_LIST_DESCRIPTION, ownerId },
+      select: { id: true },
+    }));
+  for (const { email, role } of SEED_TEST_USERS) {
+    const userId = ids.get(email)!;
+    await tx.listMember.upsert({
+      where: { listId_userId: { listId: list.id, userId } },
+      create: { listId: list.id, userId, role },
+      update: { role },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('O seed não roda com NODE_ENV=production.');
@@ -104,6 +162,8 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   try {
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    const testPassword = process.env.SEED_TEST_PASSWORD || DEFAULT_SEED_TEST_PASSWORD;
+    const testPasswordHash = await argon2.hash(testPassword, { type: argon2.argon2id });
 
     await prisma.$transaction(async (tx) => {
       const user = await tx.user.upsert({
@@ -197,28 +257,12 @@ async function main(): Promise<void> {
         }
       }
 
-      const credential = await tx.account.findFirst({
-        where: { userId: user.id, providerId: 'credential' },
-      });
-      if (credential) {
-        await tx.account.update({
-          where: { id: credential.id },
-          data: { accountId: user.id, password: passwordHash },
-        });
-      } else {
-        await tx.account.create({
-          data: {
-            userId: user.id,
-            providerId: 'credential',
-            accountId: user.id,
-            password: passwordHash,
-          },
-        });
-      }
+      await upsertCredential(tx, user.id, passwordHash);
+      await seedTestUsers(tx, testPasswordHash);
     });
 
     console.log(
-      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo, dois itens, uma nota, um comentário e dois episódios assistidos.`,
+      `Seed concluído: usuário ${SEED_E2E_EMAIL} verificado, com uma lista de exemplo, dois itens, uma nota, um comentário e dois episódios assistidos; contas de teste ${SEED_TEST_USERS.map((u) => u.email).join(', ')} numa lista compartilhada.`,
     );
   } finally {
     await prisma.$disconnect();
