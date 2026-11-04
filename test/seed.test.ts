@@ -26,9 +26,18 @@ describe('prisma/seed.ts', () => {
     expect((await runSeed()).code).toBe(0);
     expect((await runSeed({ SEED_E2E_PASSWORD: 'outra-senha' })).code).toBe(0);
 
-    const users = await prisma.user.findMany({ include: { accounts: true } });
-    expect(users).toHaveLength(1);
-    const [user] = users;
+    const users = await prisma.user.findMany({
+      include: { accounts: true },
+      orderBy: { email: 'asc' },
+    });
+    // Usuário E2E + 3 contas de teste para uso manual, sem duplicar na segunda execução.
+    expect(users.map((u) => u.email)).toEqual([
+      'ana@maratonei.local',
+      'bruno@maratonei.local',
+      'carla@maratonei.local',
+      'e2e@maratonei.local',
+    ]);
+    const user = users.find((u) => u.email === 'e2e@maratonei.local');
     expect(user).toMatchObject({
       email: 'e2e@maratonei.local',
       name: 'Usuário E2E',
@@ -40,12 +49,32 @@ describe('prisma/seed.ts', () => {
     expect(account?.password).toMatch(/^\$argon2id\$/);
     expect(await argon2.verify(account?.password ?? '', 'outra-senha')).toBe(true);
 
+    // As contas de teste são verificadas, com credencial argon2id e a senha padrão de teste.
+    for (const testUser of users.filter((u) => u.email !== 'e2e@maratonei.local')) {
+      expect(testUser.emailVerified).toBe(true);
+      expect(testUser.accounts).toHaveLength(1);
+      const testAccount = testUser.accounts[0];
+      expect(testAccount).toMatchObject({ providerId: 'credential', accountId: testUser.id });
+      expect(await argon2.verify(testAccount?.password ?? '', 'maratonei-teste-123')).toBe(true);
+    }
+
     // Uma lista de exemplo, com o usuário como dono, sem duplicar na segunda execução.
-    const lists = await prisma.list.findMany({ include: { members: true } });
-    expect(lists).toHaveLength(1);
-    expect(lists[0]).toMatchObject({ name: 'Maratona de exemplo', ownerId: user?.id });
-    expect(lists[0]?.members).toHaveLength(1);
-    expect(lists[0]?.members[0]).toMatchObject({ userId: user?.id, role: 'OWNER' });
+    const lists = await prisma.list.findMany({
+      include: { members: { include: { user: true } } },
+      orderBy: { name: 'asc' },
+    });
+    expect(lists.map((l) => l.name)).toEqual(['Maratona de exemplo', 'Maratona do grupo']);
+    const [exampleList, groupList] = lists;
+    expect(exampleList).toMatchObject({ ownerId: user?.id });
+    expect(exampleList?.members).toHaveLength(1);
+    expect(exampleList?.members[0]).toMatchObject({ userId: user?.id, role: 'OWNER' });
+
+    // Lista compartilhada pelas contas de teste: dona, editor e membro.
+    expect(groupList?.members.map((m) => [m.user.email, m.role]).sort()).toEqual([
+      ['ana@maratonei.local', 'OWNER'],
+      ['bruno@maratonei.local', 'EDITOR'],
+      ['carla@maratonei.local', 'MEMBER'],
+    ]);
 
     // Dois itens de exemplo com títulos estáticos (sem TMDB), idempotentes.
     const items = await prisma.listItem.findMany({
