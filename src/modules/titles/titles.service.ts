@@ -7,10 +7,12 @@ import {
   DETAIL_TTL_MS,
   NEGATIVE_TTL_MS,
   PROVIDERS_TTL_MS,
+  SEARCH_TTL_MS,
 } from '../../lib/cache/index.js';
 import { prisma, Prisma } from '../../lib/prisma.js';
 import {
   getTmdb,
+  toPublicRating,
   type TmdbMediaType,
   type TmdbProviders,
   type TmdbSearchPage,
@@ -34,6 +36,7 @@ export { NEGATIVE_TTL_MS };
  * se o TMDB falhar (rotas públicas, AD-19). Recomendações e temporadas seguem sem isso.
  */
 const detailCache = createCache<TmdbTitleDetail>({ ttlMs: DETAIL_TTL_MS, staleIfError: true });
+const searchCache = createCache<TmdbSearchPage>({ ttlMs: SEARCH_TTL_MS, staleIfError: true });
 const recommendationsCache = createCache<TmdbSearchPage>({ ttlMs: RECOMMENDATIONS_MEMORY_TTL_MS });
 const seasonCache = createCache<TmdbSeasonDetail>({ ttlMs: SEASON_MEMORY_TTL_MS });
 const providersCache = createCache<TmdbProviders>({ ttlMs: PROVIDERS_TTL_MS, staleIfError: true });
@@ -77,8 +80,18 @@ export function toTitleSummary(title: TitleSummaryData): TitleSummaryData {
   };
 }
 
-export async function searchTitles(query: string, page: number): Promise<Page<TitleSummaryData>> {
-  const result = await getTmdb().search(query, page);
+export async function searchTitles(
+  query: string,
+  page: number,
+  mediaType?: TmdbMediaType,
+): Promise<Page<TitleSummaryData>> {
+  const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, ' ');
+  const key = JSON.stringify([mediaType ?? 'ALL', normalizedQuery, page]);
+  const result = await searchCache.get(key, () =>
+    mediaType
+      ? getTmdb().searchByType(mediaType, normalizedQuery, page)
+      : getTmdb().search(normalizedQuery, page),
+  );
   return {
     data: result.results.map(toTitleSummary),
     page,
@@ -151,6 +164,8 @@ function detailFromRow(row: Title): TitleDetail {
     seasons: seasonsOf(row),
     cast: [],
     trailer: null,
+    voteAverage: null,
+    voteCount: 0,
   };
 }
 
@@ -164,8 +179,16 @@ export async function getTitleDetail(
 ): Promise<TitleDetail> {
   try {
     const detail = await fetchDetail(mediaType, tmdbId);
-    if (await findRow(mediaType, tmdbId)) await saveTitle(detail);
-    return detail;
+    return {
+      ...toTitleSummary(detail),
+      genres: detail.genres,
+      runtime: detail.runtime,
+      seasons: detail.seasons,
+      cast: detail.cast,
+      trailer: detail.trailer,
+      voteAverage: toPublicRating(detail.voteAverage, detail.voteCount),
+      voteCount: detail.voteCount,
+    };
   } catch (error) {
     if (!(error instanceof AppError) || error.code !== 'TMDB_UNAVAILABLE') throw error;
     const row = await findRow(mediaType, tmdbId);

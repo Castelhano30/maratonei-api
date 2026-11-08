@@ -9,7 +9,7 @@ export const recommendations: RequestHandler = async (_req, res) => {
 
 export const search: RequestHandler = async (req, res) => {
   const { query } = validate(req, { query: SearchQuery });
-  res.json(await service.searchTitles(query.q, query.page));
+  res.json(await service.searchTitles(query.q, query.page, query.mediaType));
 };
 
 export const getSeason: RequestHandler = async (req, res) => {

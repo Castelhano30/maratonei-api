@@ -18,6 +18,8 @@ registry.registerPath({
   method: 'get',
   path: '/api/v1/titles/search',
   operationId: 'searchTitles',
+  description:
+    'Busca geral sem mediaType; MOVIE ou TV restringe os resultados ao tipo. Cache em memória de 10 min, com cópia vencida por até mais 24 h se o TMDB falhar.',
   tags: ['titles'],
   summary: 'Busca filmes e séries por nome, em pt-BR (TMDB). Pública.',
   request: { query: SearchQuery },

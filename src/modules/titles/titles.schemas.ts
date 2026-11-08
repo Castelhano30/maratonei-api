@@ -7,6 +7,7 @@ export const SEARCH_PAGE_SIZE = 20;
 
 export const SearchQuery = z.object({
   q: z.string().trim().min(1).max(100).openapi({ example: 'duna' }),
+  mediaType: MediaType.optional().openapi({ description: 'Restringe a busca a filmes ou séries.' }),
   page: z.coerce.number().int().min(1).max(SEARCH_MAX_PAGE).default(1),
 });
 
@@ -56,6 +57,10 @@ export const TitleDetail = z
       .openapi({ description: 'Séries; `null` em filmes.' }),
     cast: z.array(CastMember).openapi({ description: 'Elenco principal (até 10).' }),
     trailer: Trailer.nullable(),
+    voteAverage: z.number().nullable().openapi({
+      description: 'Nota do TMDB (0 a 10), uma casa; `null` sem votos',
+    }),
+    voteCount: z.number().int().openapi({ description: 'Quantidade de votos no TMDB.' }),
   })
   .openapi('TitleDetail');
 

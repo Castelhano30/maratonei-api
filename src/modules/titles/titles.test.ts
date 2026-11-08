@@ -86,6 +86,51 @@ describe('GET /titles/recommendations', () => {
 });
 
 describe('GET /titles/search (CAP-11)', () => {
+  it('OpenAPI documenta os contratos públicos e a nota', async () => {
+    const res = await request(testApp()).get('/api/v1/openapi.json').expect(200);
+    for (const path of [
+      '/api/v1/titles/search',
+      '/api/v1/titles/{mediaType}/{tmdbId}',
+      '/api/v1/titles/{mediaType}/{tmdbId}/providers',
+    ]) {
+      expect(res.body.paths[path].get.responses).not.toHaveProperty('401');
+    }
+    const search = res.body.paths['/api/v1/titles/search'].get;
+    expect(search.operationId).toBe('searchTitles');
+    expect(search.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'mediaType', in: 'query', required: false }),
+      ]),
+    );
+    const detail = res.body.components.schemas.TitleDetail;
+    expect(detail.properties.voteAverage).toMatchObject({ type: 'number', nullable: true });
+    expect(detail.properties.voteCount).toMatchObject({ type: 'integer' });
+    expect(detail.required).toEqual(expect.arrayContaining(['voteAverage', 'voteCount']));
+    expect(detail.properties).not.toHaveProperty('productionCountries');
+    expect(detail.properties).not.toHaveProperty('numberOfSeasons');
+  });
+
+  it('sem sessão mantém o mesmo corpo da busca com sessão', async () => {
+    fakeTmdb.add(movieDetail(), tvDetail());
+    const anon = await request(testApp()).get('/api/v1/titles/search?q=duna').expect(200);
+    const agent = await asUser();
+    const authenticated = await agent.get('/api/v1/titles/search?q=duna').expect(200);
+    expect(authenticated.body).toEqual(anon.body);
+    expect(fakeTmdb.searchCalls).toEqual([{ query: 'duna', page: 1 }]);
+  });
+
+  it.each(['MOVIE', 'TV'])('busca pública restrita a %s', async (mediaType) => {
+    fakeTmdb.add(movieDetail({ name: 'Dark Movie' }), tvDetail());
+    const res = await request(testApp())
+      .get('/api/v1/titles/search')
+      .query({ q: 'dark', mediaType })
+      .expect(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].mediaType).toBe(mediaType);
+    expect(fakeTmdb.searchByTypeCalls).toEqual([{ mediaType, query: 'dark', page: 1 }]);
+    expect(fakeTmdb.searchCalls).toHaveLength(0);
+  });
+
   it('devolve Page<TitleSummary> com pageSize 20', async () => {
     fakeTmdb.add(movieDetail(), tvDetail());
     const agent = await asUser();
@@ -119,13 +164,14 @@ describe('GET /titles/search (CAP-11)', () => {
 
   it.each([
     [{}, 'sem q'],
+    [{ q: '' }, 'q vazio sem espaços'],
     [{ q: '   ' }, 'q vazio'],
     [{ q: 'x'.repeat(101) }, 'q longo'],
+    [{ q: 'a', mediaType: 'ANIME' }, 'tipo inválido'],
     [{ q: 'a', page: 0 }, 'page 0'],
     [{ q: 'a', page: 501 }, 'page acima do teto do TMDB'],
   ])('400 VALIDATION_FAILED: %j (%s)', async (query, _label) => {
-    const agent = await asUser();
-    const res = await agent.get('/api/v1/titles/search').query(query);
+    const res = await request(testApp()).get('/api/v1/titles/search').query(query);
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
     expect(fakeTmdb.searchCalls).toHaveLength(0);
@@ -151,15 +197,15 @@ describe('GET /titles/search (CAP-11)', () => {
 describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
   it('detalhe de filme: gêneros, elenco, duração e trailer', async () => {
     fakeTmdb.add(movieDetail());
-    const agent = await asUser();
-
-    const res = await agent.get('/api/v1/titles/MOVIE/438631');
+    const res = await request(testApp()).get('/api/v1/titles/MOVIE/438631');
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       tmdbId: 438631,
       mediaType: 'MOVIE',
       name: 'Duna',
+      voteAverage: 7.8,
+      voteCount: 12000,
       genres: [
         { id: 878, name: 'Ficção científica' },
         { id: 12, name: 'Aventura' },
@@ -169,6 +215,19 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
       cast: [{ name: 'Timothée Chalamet', character: 'Paul Atreides' }],
       trailer: { site: 'YouTube', key: 'n9xhJrPXop4' },
     });
+    expect(res.body).not.toHaveProperty('productionCountries');
+    expect(res.body).not.toHaveProperty('numberOfSeasons');
+  });
+
+  it.each([
+    [7.86, 10, 7.9],
+    [0, 0, null],
+    [null, 10, null],
+  ])('publica nota %s com %s votos como %s', async (voteAverage, voteCount, expected) => {
+    fakeTmdb.add(movieDetail({ voteAverage, voteCount }));
+    const res = await request(testApp()).get('/api/v1/titles/MOVIE/438631').expect(200);
+    expect(res.body.voteAverage).toBe(expected);
+    expect(res.body.voteCount).toBe(voteCount);
   });
 
   it('detalhe de série: temporadas e sem duração', async () => {
@@ -185,9 +244,27 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
 
   it('não persiste Title só por consultar o detalhe', async () => {
     fakeTmdb.add(movieDetail());
-    const agent = await asUser();
-    await agent.get('/api/v1/titles/MOVIE/438631').expect(200);
-    expect(await prisma.title.count()).toBe(0);
+    const before = await prisma.title.count();
+    await request(testApp()).get('/api/v1/titles/MOVIE/438631').expect(200);
+    expect(await prisma.title.count()).toBe(before);
+  });
+
+  it('consulta Title apenas quando o TMDB e o cache estão indisponíveis', async () => {
+    fakeTmdb.add(movieDetail());
+    const find = vi.spyOn(prisma.title, 'findUnique');
+    try {
+      await request(testApp()).get('/api/v1/titles/MOVIE/438631').expect(200);
+      await request(testApp()).get('/api/v1/titles/MOVIE/438631').expect(200);
+      await request(testApp()).get('/api/v1/titles/MOVIE/999').expect(404);
+      expect(find).not.toHaveBeenCalled();
+      fakeTmdb.setDown(true);
+      await request(testApp()).get('/api/v1/titles/MOVIE/998').expect(503);
+      expect(find).toHaveBeenCalledExactlyOnceWith({
+        where: { mediaType_tmdbId: { mediaType: 'MOVIE', tmdbId: 998 } },
+      });
+    } finally {
+      find.mockRestore();
+    }
   });
 
   it('usa o cache em memória na segunda consulta', async () => {
@@ -199,8 +276,8 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
   });
 
   it('desconhecido no TMDB → 404 TITLE_NOT_FOUND', async () => {
-    const agent = await asUser();
-    const res = await agent.get('/api/v1/titles/MOVIE/999');
+    await createTitle({ tmdbId: 999 });
+    const res = await request(testApp()).get('/api/v1/titles/MOVIE/999');
     expect(res.status).toBe(404);
     expect(res.body).toMatchObject({ code: 'TITLE_NOT_FOUND' });
   });
@@ -227,9 +304,7 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
       runtime: 155,
     });
     fakeTmdb.setDown(true);
-    const agent = await asUser();
-
-    const res = await agent.get('/api/v1/titles/MOVIE/438631');
+    const res = await request(testApp()).get('/api/v1/titles/MOVIE/438631');
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -238,26 +313,30 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
       runtime: 155,
       cast: [],
       trailer: null,
+      voteAverage: null,
+      voteCount: 0,
     });
   });
 
   it('TMDB fora e sem cache → 503 TMDB_UNAVAILABLE', async () => {
     fakeTmdb.setDown(true);
-    const agent = await asUser();
-    const res = await agent.get('/api/v1/titles/MOVIE/438631');
+    const res = await request(testApp()).get('/api/v1/titles/MOVIE/438631');
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ code: 'TMDB_UNAVAILABLE' });
   });
 
-  it('com a linha Title existente, a consulta bem-sucedida a atualiza', async () => {
-    await createTitle({ tmdbId: 438631, name: 'Nome antigo', cachedAt: new Date(2020, 0, 1) });
-    fakeTmdb.add(movieDetail());
-    const agent = await asUser();
-    await agent.get('/api/v1/titles/MOVIE/438631').expect(200);
-    const row = await prisma.title.findFirstOrThrow({ where: { tmdbId: 438631 } });
-    expect(row.name).toBe('Duna');
-    expect(row.cachedAt.getFullYear()).toBeGreaterThan(2020);
-  });
+  it.each([new Date(2020, 0, 1), new Date()])(
+    'preserva a linha Title com cachedAt %s',
+    async (cachedAt) => {
+      const before = await createTitle({ tmdbId: 438631, name: 'Nome antigo', cachedAt });
+      const count = await prisma.title.count();
+      fakeTmdb.add(movieDetail());
+      await request(testApp()).get('/api/v1/titles/MOVIE/438631').expect(200);
+      const row = await prisma.title.findFirstOrThrow({ where: { tmdbId: 438631 } });
+      expect(row).toEqual(before);
+      expect(await prisma.title.count()).toBe(count);
+    },
+  );
 });
 
 describe('GET /titles/TV/:tmdbId/seasons/:season (CAP-18)', () => {
