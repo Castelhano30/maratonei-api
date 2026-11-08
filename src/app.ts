@@ -27,6 +27,16 @@ import { ratingsRouter } from './modules/ratings/index.js';
 import { createTitlesPublicRouter, titlesRouter } from './modules/titles/index.js';
 import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/openapi.routes.js';
 
+type RateLimitSettings = Pick<
+  Config,
+  | 'NODE_ENV'
+  | 'RATE_LIMIT_GLOBAL_PER_MIN'
+  | 'RATE_LIMIT_TITLES_PER_MIN'
+  | 'RATE_LIMIT_AUTH_PER_MIN'
+  | 'RATE_LIMIT_PUBLIC_PER_MIN'
+  | 'RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN'
+>;
+
 export interface AppOptions {
   config?: Pick<Config, 'ALLOWED_ORIGINS' | 'LOG_LEVEL'>;
   logger?: Logger;
@@ -34,15 +44,16 @@ export interface AppOptions {
   rateLimit?: RateLimitOptions;
 }
 
-function defaultRateLimit(): RateLimitOptions {
-  if (defaultConfig.NODE_ENV === 'test') return {};
+/** Limites a partir da config; desligados em `NODE_ENV=test` e quando o valor é 0. */
+export function defaultRateLimit(settings: RateLimitSettings = defaultConfig): RateLimitOptions {
+  if (settings.NODE_ENV === 'test') return {};
   const limiter = (limit: number) =>
     limit > 0 ? { limit, windowMs: RATE_LIMIT_WINDOW_MS } : undefined;
-  const global = limiter(defaultConfig.RATE_LIMIT_GLOBAL_PER_MIN);
-  const titles = limiter(defaultConfig.RATE_LIMIT_TITLES_PER_MIN);
-  const auth = limiter(defaultConfig.RATE_LIMIT_AUTH_PER_MIN);
-  const publicPerIp = limiter(defaultConfig.RATE_LIMIT_PUBLIC_PER_MIN);
-  const publicGlobal = limiter(defaultConfig.RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN);
+  const global = limiter(settings.RATE_LIMIT_GLOBAL_PER_MIN);
+  const titles = limiter(settings.RATE_LIMIT_TITLES_PER_MIN);
+  const auth = limiter(settings.RATE_LIMIT_AUTH_PER_MIN);
+  const publicPerIp = limiter(settings.RATE_LIMIT_PUBLIC_PER_MIN);
+  const publicGlobal = limiter(settings.RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN);
   return {
     ...(global ? { global } : {}),
     ...(titles ? { titles } : {}),
