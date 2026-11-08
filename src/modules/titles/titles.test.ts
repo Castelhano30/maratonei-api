@@ -16,15 +16,22 @@ import { clearTitleCache, ensureTitle, TITLE_CACHE_TTL_MS } from './index.js';
 import { PROVIDERS_MEMORY_TTL_MS, SEASON_MEMORY_TTL_MS } from './titles.service.js';
 
 describe('sem sessão (401 UNAUTHENTICATED)', () => {
-  it.each([
-    '/api/v1/titles/recommendations',
-    '/api/v1/titles/search?q=duna',
-    '/api/v1/titles/MOVIE/1',
-  ])('GET %s', async (path) => {
-    const res = await request(testApp()).get(path).set('Origin', allowedOrigin());
-    expect(res.status).toBe(401);
-    expect(res.body).toMatchObject({ code: 'UNAUTHENTICATED' });
-  });
+  it.each(['/api/v1/titles/recommendations', '/api/v1/titles/TV/1/seasons/1'])(
+    'GET %s',
+    async (path) => {
+      const res = await request(testApp()).get(path).set('Origin', allowedOrigin());
+      expect(res.status).toBe(401);
+      expect(res.body).toMatchObject({ code: 'UNAUTHENTICATED' });
+    },
+  );
+
+  it.each(['/api/v1/titles/search?q=duna', '/api/v1/titles/MOVIE/1'])(
+    'GET %s é pública (sem 401)',
+    async (path) => {
+      const res = await request(testApp()).get(path);
+      expect(res.status).not.toBe(401);
+    },
+  );
 });
 
 describe('GET /titles/recommendations', () => {
@@ -377,15 +384,14 @@ describe('GET /titles/:mediaType/:tmdbId/providers (CAP-19)', () => {
     expect(down.body).toMatchObject({ code: 'TMDB_UNAVAILABLE' });
   });
 
-  it('400 em mediaType inválido; 401 sem sessão', async () => {
+  it('400 em mediaType inválido; pública (sem sessão não dá 401)', async () => {
     const agent = await asUser();
     const res = await agent.get('/api/v1/titles/SERIE/1/providers');
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
-    const anon = await request(testApp())
-      .get('/api/v1/titles/MOVIE/1/providers')
-      .set('Origin', allowedOrigin());
-    expect(anon.status).toBe(401);
+    fakeTmdb.add(movieDetail());
+    const anon = await request(testApp()).get('/api/v1/titles/MOVIE/438631/providers');
+    expect(anon.status).toBe(200);
   });
 });
 

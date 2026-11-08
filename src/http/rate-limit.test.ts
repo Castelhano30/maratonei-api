@@ -31,9 +31,9 @@ describe('rate limit (429 RATE_LIMITED)', () => {
     const app = createApp({ rateLimit: { titles: { limit: 2, ...WINDOW } } });
     const agent = await asUser(undefined, app);
 
-    expect((await agent.get('/api/v1/titles/search?q=a')).status).not.toBe(429);
-    expect((await agent.get('/api/v1/titles/search?q=b')).status).not.toBe(429);
-    const blocked = await agent.get('/api/v1/titles/search?q=c');
+    expect((await agent.get('/api/v1/titles/recommendations')).status).not.toBe(429);
+    expect((await agent.get('/api/v1/titles/recommendations')).status).not.toBe(429);
+    const blocked = await agent.get('/api/v1/titles/recommendations');
     expect(blocked.status).toBe(429);
     expect(blocked.body.code).toBe('RATE_LIMITED');
 

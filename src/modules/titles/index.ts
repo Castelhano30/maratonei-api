@@ -1,4 +1,5 @@
 export { titlesRouter } from './titles.routes.js';
+export { createTitlesPublicRouter } from './titles.public.routes.js';
 export {
   clearTitleCache,
   ensureTitle,
