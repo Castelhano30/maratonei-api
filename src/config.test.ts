@@ -37,10 +37,69 @@ describe('parseConfig (AD-16)', () => {
       RATE_LIMIT_GLOBAL_PER_MIN: 300,
       RATE_LIMIT_TITLES_PER_MIN: 60,
       RATE_LIMIT_AUTH_PER_MIN: 30,
+      RATE_LIMIT_PUBLIC_PER_MIN: 120,
+      RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN: 600,
+      CATALOG_MIN_VOTES_MOVIE: 3000,
+      CATALOG_MIN_VOTES_TV: 1000,
+      LOG_CLIENT_IP_DEBUG: false,
       TRUST_PROXY: 0,
       DB_CONNECTION_TIMEOUT_MS: 5000,
       DB_STATEMENT_TIMEOUT_MS: 15000,
     });
+  });
+
+  it.each([
+    ['RATE_LIMIT_PUBLIC_PER_MIN', 42],
+    ['RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN', 420],
+    ['CATALOG_MIN_VOTES_MOVIE', 2000],
+    ['CATALOG_MIN_VOTES_TV', 800],
+  ] as const)('aceita valor customizado e zero em %s', (variable, value) => {
+    expect(parseConfig({ ...validEnv, [variable]: String(value) })[variable]).toBe(value);
+    expect(parseConfig({ ...validEnv, [variable]: '0' })[variable]).toBe(0);
+  });
+
+  describe.each([
+    'RATE_LIMIT_PUBLIC_PER_MIN',
+    'RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN',
+    'CATALOG_MIN_VOTES_MOVIE',
+    'CATALOG_MIN_VOTES_TV',
+  ] as const)('%s', (variable) => {
+    it.each(['-1', 'nao-numerico', '1.5'])(
+      'rejeita %s listando só o nome da variável, sem imprimir o valor',
+      (value) => {
+        const error = configErrorOf({ ...validEnv, [variable]: value });
+        expect(error.issues.map((issue) => issue.variable)).toEqual([variable]);
+        expect(error.message).toBe(`Variáveis de ambiente inválidas: ${variable}`);
+        expect(`${error.message}\n${JSON.stringify(error.issues)}`).not.toContain(value);
+      },
+    );
+  });
+
+  it.each([
+    ['true', true],
+    ['false', false],
+    ['1', true],
+    ['0', false],
+  ] as const)('converte LOG_CLIENT_IP_DEBUG=%s para %s', (value, expected) => {
+    expect(parseConfig({ ...validEnv, LOG_CLIENT_IP_DEBUG: value }).LOG_CLIENT_IP_DEBUG).toBe(
+      expected,
+    );
+  });
+
+  it.each(['talvez', 'TRUE', 'False', ' true ', '2'])(
+    'rejeita LOG_CLIENT_IP_DEBUG=%j sem imprimir o valor',
+    (value) => {
+      const error = configErrorOf({ ...validEnv, LOG_CLIENT_IP_DEBUG: value });
+      expect(error.issues).toEqual([
+        { variable: 'LOG_CLIENT_IP_DEBUG', message: 'use true, false, 1 ou 0' },
+      ]);
+      expect(error.message).toBe('Variáveis de ambiente inválidas: LOG_CLIENT_IP_DEBUG');
+      expect(`${error.message}\n${JSON.stringify(error.issues)}`).not.toContain(value);
+    },
+  );
+
+  it('LOG_CLIENT_IP_DEBUG vazio conta como ausente (desligado)', () => {
+    expect(parseConfig({ ...validEnv, LOG_CLIENT_IP_DEBUG: '' }).LOG_CLIENT_IP_DEBUG).toBe(false);
   });
 
   it('TMDB é opcional: sem chave fica indefinido; com chave e base é aceito; base inválida falha', () => {

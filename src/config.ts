@@ -96,7 +96,17 @@ export const EnvSchema = z
     RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().min(0).default(300),
     RATE_LIMIT_TITLES_PER_MIN: z.coerce.number().int().min(0).default(60),
     RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().min(0).default(30),
-    // Saltos de proxy confiáveis para descobrir o IP real (0 = nenhum; 1 = Render/Vercel).
+    RATE_LIMIT_PUBLIC_PER_MIN: z.coerce.number().int().min(0).default(120),
+    RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN: z.coerce.number().int().min(0).default(600),
+    // Piso de votos do TMDB para os rankings de filmes e séries.
+    CATALOG_MIN_VOTES_MOVIE: z.coerce.number().int().min(0).default(3000),
+    CATALOG_MIN_VOTES_TV: z.coerce.number().int().min(0).default(1000),
+    // Log temporário de IP na liveness para medir os saltos de proxy em produção.
+    LOG_CLIENT_IP_DEBUG: z
+      .enum(['true', 'false', '1', '0'], { error: 'use true, false, 1 ou 0' })
+      .transform((value) => value === 'true' || value === '1')
+      .default(false),
+    // Saltos de proxy confiáveis para descobrir o IP real (0 = nenhum; 2 = Railway no primeiro deploy).
     TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
     // Pool do Postgres: espera máxima por conexão e tempo máximo por query (0 desliga o
     // statement_timeout, para poolers que rejeitam o parâmetro de startup).
