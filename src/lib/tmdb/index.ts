@@ -4,6 +4,7 @@ import { createHttpTmdbClient } from './client.js';
 import type { TmdbClient } from './types.js';
 
 export { createHttpTmdbClient, DEFAULT_TMDB_BASE_URL } from './client.js';
+export { toPublicRating } from './rating.js';
 export type * from './types.js';
 
 /** Cliente de quando não há `TMDB_API_KEY`: toda chamada vira 503 `TMDB_UNAVAILABLE`. */

@@ -105,7 +105,7 @@ export async function getTitleRecommendations(): Promise<Page<TitleSummaryData>>
 }
 
 /** Detalhe do TMDB, com cache em memória e chamadas simultâneas deduplicadas. */
-function fetchDetail(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail> {
+export function fetchDetail(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail> {
   return detailCache.get(`${mediaType}:${tmdbId}`, () => getTmdb().getTitle(mediaType, tmdbId));
 }
 
