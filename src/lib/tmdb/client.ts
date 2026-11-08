@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { AppError } from '../../http/app-error.js';
 import type {
+  TmdbCatalogItem,
+  TmdbCatalogPage,
   TmdbClient,
+  TmdbGenre,
   TmdbMediaType,
   TmdbProvider,
   TmdbProviders,
@@ -51,6 +54,21 @@ const popularMovieSchema = searchResultSchema.omit({ media_type: true }).extend(
   adult: z.boolean(),
 });
 
+const listingItemSchema = searchResultSchema.omit({ media_type: true }).extend({
+  adult: z.boolean().nullish(),
+  vote_average: z.number().nullish(),
+  vote_count: z.number().int().nullish(),
+  origin_country: z.array(z.string()).nullish(),
+});
+
+type ListingItem = z.infer<typeof listingItemSchema>;
+
+const nowPlayingItemSchema = listingItemSchema.extend({ adult: z.boolean() });
+
+const catalogPageSchema = searchSchema.extend({ total_pages: z.number().int() });
+
+const genresSchema = z.object({ genres: z.array(z.unknown()) });
+
 const detailSchema = z.object({
   id: z.number().int(),
   title: nullableString,
@@ -92,6 +110,10 @@ const detailSchema = z.object({
         .nullish(),
     })
     .nullish(),
+  vote_average: z.number().nullish(),
+  vote_count: z.number().int().nullish(),
+  production_countries: z.array(z.object({ iso_3166_1: z.string() })).nullish(),
+  number_of_seasons: z.number().int().nullish(),
 });
 
 const seasonSchema = z.object({
@@ -150,6 +172,43 @@ function pickTrailer(
   return chosen ? { site: 'YouTube', key: chosen.key, name: chosen.name } : null;
 }
 
+const mediaPath = (mediaType: TmdbMediaType) => (mediaType === 'MOVIE' ? 'movie' : 'tv');
+
+function toCatalogItem(mediaType: TmdbMediaType, entry: ListingItem): TmdbCatalogItem {
+  const isMovie = mediaType === 'MOVIE';
+  return {
+    tmdbId: entry.id,
+    mediaType,
+    title: (isMovie ? entry.title : entry.name) ?? '',
+    year: yearOf(isMovie ? entry.release_date : entry.first_air_date),
+    genreIds: entry.genre_ids ?? [],
+    posterPath: entry.poster_path ?? null,
+    overview: entry.overview ?? '',
+    voteAverage: entry.vote_average ?? null,
+    voteCount: entry.vote_count ?? 0,
+    originCountry: isMovie ? null : (entry.origin_country?.[0] ?? null),
+  };
+}
+
+function toCatalogPage(
+  mediaType: TmdbMediaType,
+  body: z.infer<typeof catalogPageSchema>,
+  itemSchema: typeof listingItemSchema | typeof nowPlayingItemSchema,
+): TmdbCatalogPage {
+  const results: TmdbCatalogItem[] = [];
+  for (const raw of body.results) {
+    const item = itemSchema.safeParse(raw);
+    if (!item.success || item.data.adult) continue;
+    results.push(toCatalogItem(mediaType, item.data));
+  }
+  return {
+    page: body.page,
+    totalResults: body.total_results,
+    totalPages: body.total_pages,
+    results,
+  };
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function discard(response: Response | null): Promise<void> {
@@ -179,9 +238,10 @@ export function createHttpTmdbClient(options: HttpTmdbClientOptions): TmdbClient
 
   async function request(path: string, params: Record<string, string>): Promise<unknown> {
     const url = new URL(`${baseUrl}${path}`);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    // Por último: `params` nunca sobrescreve a chave nem o idioma.
     url.searchParams.set('api_key', options.apiKey);
     url.searchParams.set('language', LANGUAGE);
-    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
     let response = await attempt(url);
     if (!response || response.status >= 500 || response.status === 429) {
@@ -311,6 +371,10 @@ export function createHttpTmdbClient(options: HttpTmdbClientOptions): TmdbClient
           profilePath: member.profile_path ?? null,
         })),
         trailer: pickTrailer(body.videos?.results ?? []),
+        voteAverage: body.vote_average ?? null,
+        voteCount: body.vote_count ?? 0,
+        productionCountries: (body.production_countries ?? []).map((item) => item.iso_3166_1),
+        numberOfSeasons: isMovie ? null : (body.number_of_seasons ?? null),
       };
     },
 
@@ -342,6 +406,59 @@ export function createHttpTmdbClient(options: HttpTmdbClientOptions): TmdbClient
         buy: toProviders(region?.buy),
         link: region?.link || null,
       };
+    },
+
+    async getNowPlaying(page): Promise<TmdbCatalogPage> {
+      const body = parse(
+        catalogPageSchema,
+        await request('/movie/now_playing', { page: String(page), region: 'BR' }),
+      );
+      return toCatalogPage('MOVIE', body, nowPlayingItemSchema);
+    },
+
+    async discover(mediaType, params): Promise<TmdbCatalogPage> {
+      const body = parse(
+        catalogPageSchema,
+        await request(`/discover/${mediaPath(mediaType)}`, { ...params, include_adult: 'false' }),
+      );
+      return toCatalogPage(mediaType, body, listingItemSchema);
+    },
+
+    async listGenres(mediaType): Promise<TmdbGenre[]> {
+      const body = parse(genresSchema, await request(`/genre/${mediaPath(mediaType)}/list`, {}));
+      const genres: TmdbGenre[] = [];
+      for (const raw of body.genres) {
+        const genre = genreSchema.safeParse(raw);
+        if (genre.success) genres.push(genre.data);
+      }
+      return genres;
+    },
+
+    async searchByType(mediaType, query, page): Promise<TmdbSearchPage> {
+      const body = parse(
+        searchSchema,
+        await request(`/search/${mediaPath(mediaType)}`, {
+          query,
+          page: String(page),
+          include_adult: 'false',
+        }),
+      );
+      const results: TmdbTitleSummary[] = [];
+      for (const raw of body.results) {
+        const item = listingItemSchema.safeParse(raw);
+        if (!item.success || item.data.adult) continue;
+        const entry = toCatalogItem(mediaType, item.data);
+        results.push({
+          tmdbId: entry.tmdbId,
+          mediaType,
+          name: entry.title,
+          overview: entry.overview,
+          posterPath: entry.posterPath,
+          releaseYear: entry.year,
+          genreIds: entry.genreIds,
+        });
+      }
+      return { page: body.page, totalResults: body.total_results, results };
     },
   };
 }

@@ -16,6 +16,7 @@ import {
 function slowClient(delayMs = 30): TmdbClient {
   const wait = () => new Promise((resolve) => setTimeout(resolve, delayMs));
   return {
+    ...fakeTmdb,
     getPopularMovies: async () => (await wait(), fakeTmdb.getPopularMovies()),
     search: async (...args) => (await wait(), fakeTmdb.search(...args)),
     getTitle: async (...args) => (await wait(), fakeTmdb.getTitle(...args)),
