@@ -100,7 +100,7 @@ export const EnvSchema = z
     RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN: z.coerce.number().int().min(0).default(600),
     // Piso de votos do TMDB para os rankings de filmes e séries.
     CATALOG_MIN_VOTES_MOVIE: z.coerce.number().int().min(0).default(3000),
-    CATALOG_MIN_VOTES_TV: z.coerce.number().int().min(0).default(1000),
+    CATALOG_MIN_VOTES_TV: z.coerce.number().int().min(0).default(2000),
     // Log temporário de IP na liveness para medir os saltos de proxy em produção.
     LOG_CLIENT_IP_DEBUG: z
       .enum(['true', 'false', '1', '0'], { error: 'use true, false, 1 ou 0' })

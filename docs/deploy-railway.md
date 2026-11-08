@@ -36,7 +36,7 @@ No branch `main` do Neon, copie duas URLs:
 | `TRUST_PROXY`                              | `2` no primeiro deploy; a medição do passo 6 confirma ou corrige                                                                               |
 | `EMAIL_TRANSPORT`                          | **não muda** (continua `console`): sem domínio próprio o e-mail de reset não tem entrega confiável em produção, e a jornada 8 não depende dele |
 
-Opcionais, com padrão: `RATE_LIMIT_PUBLIC_PER_MIN` (120), `RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN` (600), `CATALOG_MIN_VOTES_MOVIE` (3000), `CATALOG_MIN_VOTES_TV` (1000), `LOG_CLIENT_IP_DEBUG` (`false`), além das demais do `.env.example`.
+Opcionais, com padrão: `RATE_LIMIT_PUBLIC_PER_MIN` (120), `RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN` (600), `CATALOG_MIN_VOTES_MOVIE` (3000), `CATALOG_MIN_VOTES_TV` (2000), `LOG_CLIENT_IP_DEBUG` (`false`), além das demais do `.env.example`.
 
 **Serviço `web`:**
 
