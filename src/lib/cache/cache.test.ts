@@ -10,6 +10,7 @@ import {
   PROVIDERS_TTL_MS,
   SEARCH_TTL_MS,
   STALE_RETENTION_MS,
+  STALE_RETRY_MS,
 } from './index.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -185,5 +186,94 @@ describe('lib/cache — teto de entradas e limpeza', () => {
 
     expect(a.size).toBe(0);
     expect(b.size).toBe(0);
+  });
+});
+
+describe('lib/cache — varredura, espera após cópia vencida e opções', () => {
+  const down = () => Promise.reject(new AppError('TMDB_UNAVAILABLE'));
+
+  it('a varredura (500+ entradas) guarda cópias ainda servíveis e remove o que não serve mais', async () => {
+    const time = clock();
+    const cache = createCache<number>({ ttlMs: HOUR, staleIfError: true });
+    for (let n = 0; n < 500; n++) await cache.get(`velha-${n}`, async () => n);
+
+    // Vencidas, mas dentro da retenção de 24 h: precisam sobreviver à próxima gravação.
+    time.advance(HOUR + 1);
+    await cache.get('nova', async () => 1);
+    expect(cache.size).toBe(501);
+    await expect(cache.get('velha-7', down)).resolves.toBe(7);
+
+    // Além de TTL + retenção: a próxima gravação as descarta.
+    time.advance(STALE_RETENTION_MS + 1);
+    await cache.get('outra', async () => 2);
+    // Sobram só 'nova' (ainda servível, com 24 h de idade) e 'outra'.
+    expect(cache.size).toBe(2);
+  });
+
+  it('a varredura também remove o negativo (404) vencido', async () => {
+    const time = clock();
+    const cache = createCache<number>({ ttlMs: HOUR, staleIfError: true });
+    for (let n = 0; n < 500; n++) {
+      await expect(
+        cache.get(`ausente-${n}`, () => Promise.reject(new AppError('TITLE_NOT_FOUND'))),
+      ).rejects.toBeInstanceOf(AppError);
+    }
+    time.advance(NEGATIVE_TTL_MS + 1);
+    await cache.get('nova', async () => 1);
+    expect(cache.size).toBe(1);
+  });
+
+  it('depois de servir a cópia vencida espera antes de tentar o TMDB de novo', async () => {
+    const time = clock();
+    const cache = createCache<string>({ ttlMs: HOUR, staleIfError: true });
+    await cache.get('k', async () => 'cópia');
+    time.advance(HOUR + 1);
+
+    const failing = vi.fn(down);
+    await expect(cache.get('k', failing)).resolves.toBe('cópia');
+    await expect(cache.get('k', failing)).resolves.toBe('cópia');
+    expect(failing).toHaveBeenCalledTimes(1);
+
+    time.advance(STALE_RETRY_MS + 1);
+    await expect(cache.get('k', async () => 'nova')).resolves.toBe('nova');
+  });
+
+  it('allowStale: false ignora a cópia vencida', async () => {
+    const time = clock();
+    const cache = createCache<string>({ ttlMs: HOUR, staleIfError: true });
+    await cache.get('k', async () => 'cópia');
+    time.advance(HOUR + 1);
+    await expect(cache.get('k', down, { allowStale: false })).rejects.toMatchObject({
+      code: 'TMDB_UNAVAILABLE',
+    });
+  });
+
+  it('o teto descarta o menos usado recentemente (LRU)', async () => {
+    const cache = createCache<number>({ ttlMs: HOUR, maxEntries: 3 });
+    for (const n of [1, 2, 3]) await cache.get(`k${n}`, async () => n);
+    await cache.get('k1', async () => 99); // leitura recente de k1
+    await cache.get('k4', async () => 4); // descarta k2, não k1
+
+    const reload = vi.fn(async () => 0);
+    await cache.get('k1', reload);
+    expect(reload).not.toHaveBeenCalled();
+    await cache.get('k2', reload);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('delete remove a entrada', async () => {
+    const cache = createCache<number>({ ttlMs: HOUR });
+    await cache.get('k', async () => 1);
+    cache.delete('k');
+    expect(cache.size).toBe(0);
+  });
+
+  it('carregador que falha de forma síncrona não deixa promessa pendurada', async () => {
+    const cache = createCache<number>({ ttlMs: HOUR });
+    const broken = (): Promise<number> => {
+      throw new Error('boom');
+    };
+    await expect(cache.get('k', broken)).rejects.toThrow('boom');
+    await expect(cache.get('k', async () => 5)).resolves.toBe(5);
   });
 });

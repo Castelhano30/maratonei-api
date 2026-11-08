@@ -4,6 +4,7 @@ import type { Title } from '../../generated/prisma/client.js';
 import {
   clearAllCaches,
   createCache,
+  type GetOptions,
   DETAIL_TTL_MS,
   NEGATIVE_TTL_MS,
   PROVIDERS_TTL_MS,
@@ -87,11 +88,19 @@ export async function searchTitles(
 ): Promise<Page<TitleSummaryData>> {
   const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, ' ');
   const key = JSON.stringify([mediaType ?? 'ALL', normalizedQuery, page]);
-  const result = await searchCache.get(key, () =>
-    mediaType
-      ? getTmdb().searchByType(mediaType, normalizedQuery, page)
-      : getTmdb().search(normalizedQuery, page),
-  );
+  const result = await searchCache.get(key, async () => {
+    try {
+      return await (mediaType
+        ? getTmdb().searchByType(mediaType, normalizedQuery, page)
+        : getTmdb().search(normalizedQuery, page));
+    } catch (error) {
+      // Um 404 do TMDB numa busca é falha do TMDB, não "título inexistente".
+      if (error instanceof AppError && error.code === 'TITLE_NOT_FOUND') {
+        throw new AppError('TMDB_UNAVAILABLE', { cause: error });
+      }
+      throw error;
+    }
+  });
   return {
     data: result.results.map(toTitleSummary),
     page,
@@ -117,9 +126,20 @@ export async function getTitleRecommendations(): Promise<Page<TitleSummaryData>>
   };
 }
 
+/** Caminhos que gravam no banco nunca persistem a cópia vencida do cache. */
+const NO_STALE: GetOptions = { allowStale: false };
+
 /** Detalhe do TMDB, com cache em memória e chamadas simultâneas deduplicadas. */
-export function fetchDetail(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail> {
-  return detailCache.get(`${mediaType}:${tmdbId}`, () => getTmdb().getTitle(mediaType, tmdbId));
+export function fetchDetail(
+  mediaType: TmdbMediaType,
+  tmdbId: number,
+  options?: GetOptions,
+): Promise<TmdbTitleDetail> {
+  return detailCache.get(
+    `${mediaType}:${tmdbId}`,
+    () => getTmdb().getTitle(mediaType, tmdbId),
+    options,
+  );
 }
 
 function rowData(detail: TmdbTitleDetail) {
@@ -169,32 +189,49 @@ function detailFromRow(row: Title): TitleDetail {
   };
 }
 
+export interface TitleDetailResult {
+  detail: TitleDetail;
+  /** Cópia reduzida da linha `Title` (TMDB fora e sem cópia em memória): não deve ficar em cache público. */
+  degraded: boolean;
+}
+
 /**
- * Detalhe do título. TMDB primeiro (cache em memória de 1 h); com o TMDB
- * fora, serve a linha `Title` se existir (sem elenco e trailer), senão 503.
+ * Detalhe do título para a rota pública, somente leitura. TMDB primeiro (cache em memória de 1 h,
+ * com cópia vencida por até 24 h se o TMDB falhar); depois a linha `Title`, sem elenco e
+ * trailer e marcada como degradada; senão 503.
  */
-export async function getTitleDetail(
+export async function getTitleDetailResult(
   mediaType: TmdbMediaType,
   tmdbId: number,
-): Promise<TitleDetail> {
+): Promise<TitleDetailResult> {
   try {
     const detail = await fetchDetail(mediaType, tmdbId);
     return {
-      ...toTitleSummary(detail),
-      genres: detail.genres,
-      runtime: detail.runtime,
-      seasons: detail.seasons,
-      cast: detail.cast,
-      trailer: detail.trailer,
-      voteAverage: toPublicRating(detail.voteAverage, detail.voteCount),
-      voteCount: detail.voteCount,
+      degraded: false,
+      detail: {
+        ...toTitleSummary(detail),
+        genres: detail.genres,
+        runtime: detail.runtime,
+        seasons: detail.seasons,
+        cast: detail.cast,
+        trailer: detail.trailer,
+        voteAverage: toPublicRating(detail.voteAverage, detail.voteCount),
+        voteCount: detail.voteCount,
+      },
     };
   } catch (error) {
     if (!(error instanceof AppError) || error.code !== 'TMDB_UNAVAILABLE') throw error;
     const row = await findRow(mediaType, tmdbId);
     if (!row) throw error;
-    return detailFromRow(row);
+    return { degraded: true, detail: detailFromRow(row) };
   }
+}
+
+export async function getTitleDetail(
+  mediaType: TmdbMediaType,
+  tmdbId: number,
+): Promise<TitleDetail> {
+  return (await getTitleDetailResult(mediaType, tmdbId)).detail;
 }
 
 /**
@@ -206,7 +243,7 @@ export async function ensureTitle(mediaType: TmdbMediaType, tmdbId: number): Pro
   const row = await findRow(mediaType, tmdbId);
   if (row && Date.now() - row.cachedAt.getTime() < TITLE_CACHE_TTL_MS) return row;
   try {
-    return await saveTitle(await fetchDetail(mediaType, tmdbId));
+    return await saveTitle(await fetchDetail(mediaType, tmdbId, NO_STALE));
   } catch (error) {
     if (row && error instanceof AppError && error.code === 'TMDB_UNAVAILABLE') return row;
     throw error;
@@ -219,7 +256,7 @@ export async function ensureTitle(mediaType: TmdbMediaType, tmdbId: number): Pro
  */
 export async function refreshTitle(mediaType: TmdbMediaType, tmdbId: number): Promise<void> {
   try {
-    await saveTitle(await fetchDetail(mediaType, tmdbId));
+    await saveTitle(await fetchDetail(mediaType, tmdbId, NO_STALE));
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
   }
