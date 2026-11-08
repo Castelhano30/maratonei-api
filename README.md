@@ -53,8 +53,9 @@ Cada módulo em `src/modules/<nome>` tem routes, controller, service e schemas Z
 - **Falha do TMDB:** entrada vencida há menos de 24 h é servida; sem cópia, `503 TMDB_UNAVAILABLE`. Cache negativo (404) de 5 min.
 - **Limites próprios:** as rotas públicas não contam nos limitadores globais (300/min e `/titles` 60/min); passam só por
   `RATE_LIMIT_PUBLIC_PER_MIN` (120/min por IP) e `RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN` (teto único de 600/min).
-- **Rankings:** `TOP_RATED` exclui títulos com poucos votos: `CATALOG_MIN_VOTES_MOVIE` (3000) e `CATALOG_MIN_VOTES_TV` (2000),
-  calibrados no spike de [docs/catalogo-tmdb.md](docs/catalogo-tmdb.md).
+- **Rankings e pisos de votos:** `TOP_RATED` exclui títulos com poucos votos: `CATALOG_MIN_VOTES_MOVIE` (3000) e
+  `CATALOG_MIN_VOTES_TV` (2000), calibrados no spike de [docs/catalogo-tmdb.md](docs/catalogo-tmdb.md). A ordem por nota usa o
+  mesmo piso em `ALL` e `STREAMING` (25 votos em `NOW_PLAYING` e `RECENT`), e toda ordem por lançamento exige 10 votos.
 - **Listas e título:** `GET /lists?title=MOVIE:123` (com sessão) devolve `containsTitle` e `itemId` em cada lista.
 - `titles/recommendations` está `deprecated` (substituída pelas vitrines do catálogo; sai só na v2).
 

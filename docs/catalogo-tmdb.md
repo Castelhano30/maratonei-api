@@ -21,7 +21,7 @@ Atende AC-31.11 (em cartaz com gênero), AC-32.2 (calibragem do ranking) e as de
 
 ## 1. Em cartaz (`NOW_PLAYING`)
 
-`movie/now_playing?region=BR` devolve 176 filmes em 9 páginas, com janela de 2026-09-30 a 2026-11-11 (cerca de 40 dias). Comparação com `discover` na janela de 45 dias (`release_date`, `region=BR`, tipos 2 e 3) em 10 páginas:
+`movie/now_playing?region=BR` anuncia 176 filmes em 9 páginas (166 ids distintos ao percorrer as 9, porque a paginação do TMDB repete alguns), com janela de 2026-09-30 a 2026-11-11 (cerca de 40 dias). Comparação com `discover` na janela de 45 dias (`release_date`, `region=BR`, tipos 2 e 3) em 10 páginas:
 
 - o `discover` devolveu 200 títulos; 143 dos 166 do `now_playing` estão nele;
 - dos 40 primeiros por popularidade, 37 estão no `now_playing`;

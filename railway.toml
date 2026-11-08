@@ -2,7 +2,9 @@
 # Referência: https://docs.railway.com/reference/config-as-code
 # Chaves usadas (todas documentadas ali): build.builder, build.buildCommand,
 # deploy.startCommand, deploy.preDeployCommand, deploy.healthcheckPath,
-# deploy.healthcheckTimeout, deploy.restartPolicyType, deploy.restartPolicyMaxRetries.
+# deploy.healthcheckTimeout, deploy.# Cache e limites ficam em memória: mais de uma réplica os divide e quebra os contadores.
+numReplicas = 1
+restartPolicyType, deploy.restartPolicyMaxRetries.
 
 [build]
 builder = "RAILPACK"
