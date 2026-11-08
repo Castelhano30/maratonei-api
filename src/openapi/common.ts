@@ -11,6 +11,40 @@ import { registry, z } from './registry.js';
 
 // Enums: valores UPPER idênticos no banco, no JSON, na query e no path.
 export const MediaType = registry.register('MediaType', z.enum(['MOVIE', 'TV']));
+
+// Mesmo componente público de titles, sem dependência de seus schemas internos.
+const WatchProvider = z
+  .object({
+    providerId: z.number().int(),
+    providerName: z.string(),
+    logoPath: z.string().nullable(),
+  })
+  .openapi('WatchProvider');
+
+export const CatalogCard = registry.register(
+  'CatalogCard',
+  z.object({
+    mediaType: MediaType,
+    tmdbId: z.number().int(),
+    title: z.string(),
+    year: z.number().int().nullable(),
+    genreIds: z.array(z.number().int()),
+    posterPath: z.string().nullable(),
+    overview: z.string().max(220).nullable(),
+    voteAverage: z.number().nullable(),
+    voteCount: z.number().int(),
+    originCountry: z.string().nullable(),
+    provider: WatchProvider.nullable(),
+    latestSeason: z.number().int().nullable(),
+  }),
+);
+export type CatalogCard = z.infer<typeof CatalogCard>;
+
+export const GenreList = registry.register(
+  'GenreList',
+  z.object({ data: z.array(z.object({ id: z.number().int(), name: z.string() })) }),
+);
+export type GenreList = z.infer<typeof GenreList>;
 export const ItemStatus = registry.register('ItemStatus', z.enum(['WANT', 'WATCHING', 'WATCHED']));
 export const ListRole = registry.register('ListRole', z.enum(['OWNER', 'EDITOR', 'MEMBER']));
 

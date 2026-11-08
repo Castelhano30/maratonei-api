@@ -16,6 +16,7 @@ import { rejectNul } from './http/reject-nul.js';
 import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
 import { commentsRouter } from './modules/comments/index.js';
+import { createCatalogRouter } from './modules/catalog/index.js';
 import { healthRouter } from './modules/health/index.js';
 import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
 import { itemsRouter } from './modules/items/index.js';
@@ -90,6 +91,7 @@ export function createApp(options: AppOptions = {}): Express {
   // limites públicos (AD-19). O que não casa aqui segue para o restante do pipeline.
   const publicGuards = createPublicGuards(rateLimit);
   api.use('/titles', createTitlesPublicRouter(publicGuards));
+  api.use('/catalog', createCatalogRouter(publicGuards));
   if (rateLimit.global) api.use(createLimiter(rateLimit.global));
   api.use('/me', meRouter);
   api.use('/lists', listsRouter);
