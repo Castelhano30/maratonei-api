@@ -2,6 +2,7 @@ import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../app.js';
 import { config } from '../../config.js';
+import { AppError } from '../../http/app-error.js';
 import type { Page } from '../../http/pagination.js';
 import { PUBLIC_CACHE_CONTROL } from '../../http/public.js';
 import { CATALOG_TTL_MS, GENRES_TTL_MS, STALE_RETENTION_MS } from '../../lib/cache/index.js';
@@ -359,6 +360,19 @@ describe('cartões e enriquecimento limitado', () => {
     expect(cards(res.body)[1]?.provider?.providerId).toBe(8);
   });
 
+  it('enriquecimento incompleto responde 200, mas a página não fica em cache', async () => {
+    seedEnrichment('TV');
+    const spy = vi.spyOn(fakeTmdb, 'getProviders').mockRejectedValue(new Error('falha'));
+    const first = await get('TV?collection=STREAMING');
+    expect(first.status).toBe(200);
+    expect(cards(first.body).every((card) => card.provider === null)).toBe(true);
+
+    spy.mockRestore();
+    const second = await get('TV?collection=STREAMING');
+    expect(second.status).toBe(200);
+    expect(cards(second.body)[0]?.provider?.providerId).toBe(8);
+  });
+
   it('seleciona o primeiro flatrate permitido e ignora aluguel e provedores externos', async () => {
     const items = catalogItems('MOVIE', 2);
     const outside = { providerId: 999, providerName: 'Outro', logoPath: null };
@@ -498,6 +512,30 @@ describe('cache público e indisponibilidade', () => {
       await get(path);
     }
     expect(fakeTmdb.discoverCalls).toHaveLength(6);
+  });
+});
+
+describe('404 do TMDB em listagem e sinopse', () => {
+  it('404 do TMDB vira 503 TMDB_UNAVAILABLE no catálogo e nos gêneros, com no-store', async () => {
+    const notFound = () => Promise.reject(new AppError('TITLE_NOT_FOUND'));
+    vi.spyOn(fakeTmdb, 'discover').mockImplementation(notFound);
+    vi.spyOn(fakeTmdb, 'listGenres').mockImplementation(notFound);
+    for (const path of ['MOVIE?collection=ALL', 'genres?mediaType=MOVIE']) {
+      const res = await get(path);
+      expect(res.status, path).toBe(503);
+      expect(res.body.code, path).toBe('TMDB_UNAVAILABLE');
+      expect(res.headers['cache-control'], path).toBe('no-store');
+    }
+  });
+
+  it('sinopse sem espaços não parte um par substituto ao truncar', async () => {
+    fakeTmdb.addCatalogItems(catalogItem({ overview: '😀'.repeat(300) }));
+    const res = await get('MOVIE?collection=ALL');
+    const overview = cards(res.body)[0]?.overview ?? '';
+    expect(overview.endsWith('…')).toBe(true);
+    expect(Array.from(overview).length).toBeLessThanOrEqual(220);
+    // Um surrogate solto viraria U+FFFD ao ser codificado em UTF-8.
+    expect(Buffer.from(overview, 'utf8').toString('utf8')).toBe(overview);
   });
 });
 

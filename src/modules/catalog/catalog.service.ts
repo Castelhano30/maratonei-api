@@ -26,8 +26,22 @@ const OVERVIEW_MAX_LENGTH = 220;
 const catalogCache = createCache<Page<CatalogCard>>({ ttlMs: CATALOG_TTL_MS, staleIfError: true });
 const genresCache = createCache<GenreList>({ ttlMs: GENRES_TTL_MS, staleIfError: true });
 
+/** Para o catálogo, um 404 do TMDB em listagem é falha do TMDB, não "título inexistente". */
+async function listing<R>(call: () => Promise<R>): Promise<R> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'TITLE_NOT_FOUND') {
+      throw new AppError('TMDB_UNAVAILABLE', { cause: error });
+    }
+    throw error;
+  }
+}
+
 export function listGenres(mediaType: TmdbMediaType): Promise<GenreList> {
-  return genresCache.get(mediaType, async () => ({ data: await getTmdb().listGenres(mediaType) }));
+  return genresCache.get(mediaType, async () => ({
+    data: await listing(() => getTmdb().listGenres(mediaType)),
+  }));
 }
 
 function discoverParams(mediaType: TmdbMediaType, query: CatalogQuery): Record<string, string> {
@@ -77,7 +91,10 @@ function summarizeOverview(overview: string): string | null {
   const text = overview.trim();
   if (!text) return null;
   if (text.length <= OVERVIEW_MAX_LENGTH) return text;
-  const prefix = text.slice(0, OVERVIEW_MAX_LENGTH - 1);
+  // Corta por pontos de código, para nunca partir um par substituto (emoji, por exemplo).
+  const prefix = Array.from(text)
+    .slice(0, OVERVIEW_MAX_LENGTH - 1)
+    .join('');
   const space = prefix.lastIndexOf(' ');
   return `${(space > 0 ? prefix.slice(0, space) : prefix).trimEnd()}…`;
 }
@@ -130,22 +147,37 @@ export function listCatalog(
   };
   const { collection, genreId, sort, page } = query;
   const key = JSON.stringify([mediaType, collection, genreId ?? null, sort, page]);
-  return catalogCache.get(key, async () => {
-    const result =
-      collection === 'NOW_PLAYING' && genreId === undefined && sort === 'POPULARITY'
-        ? await getTmdb().getNowPlaying(page)
-        : await getTmdb().discover(mediaType, discoverParams(mediaType, query));
-    const data = result.results.map(toCard);
-    // O enriquecimento é opcional: cada falha preserva o campo nulo do cartão.
-    if (page === 1)
-      await Promise.allSettled(
-        data.slice(0, ENRICHMENT_LIMIT).map((card) => enrich(card, collection)),
+  let incomplete = false;
+  return catalogCache
+    .get(key, async () => {
+      const result = await listing(() =>
+        collection === 'NOW_PLAYING' && genreId === undefined && sort === 'POPULARITY'
+          ? getTmdb().getNowPlaying(page)
+          : getTmdb().discover(mediaType, discoverParams(mediaType, query)),
       );
-    return {
-      data,
-      page,
-      pageSize: CATALOG_PAGE_SIZE,
-      total: Math.min(result.totalResults, CATALOG_MAX_PAGE * CATALOG_PAGE_SIZE),
-    };
-  });
+      const data = result.results.map(toCard);
+      // O enriquecimento é opcional: cada falha preserva o campo nulo do cartão.
+      if (page === 1) {
+        const settled = await Promise.allSettled(
+          data.slice(0, ENRICHMENT_LIMIT).map((card) => enrich(card, collection)),
+        );
+        // 404 de um título é definitivo (o campo fica nulo de verdade); o resto pode ser passageiro.
+        incomplete = settled.some(
+          (outcome) =>
+            outcome.status === 'rejected' &&
+            !(outcome.reason instanceof AppError && outcome.reason.code === 'TITLE_NOT_FOUND'),
+        );
+      }
+      return {
+        data,
+        page,
+        pageSize: CATALOG_PAGE_SIZE,
+        total: Math.min(result.totalResults, CATALOG_MAX_PAGE * CATALOG_PAGE_SIZE),
+      };
+    })
+    .then((response) => {
+      // Página com enriquecimento incompleto responde, mas não fica 6 h em cache.
+      if (incomplete) catalogCache.delete(key);
+      return response;
+    });
 }

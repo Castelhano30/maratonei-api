@@ -316,6 +316,8 @@ describe('GET /titles/:mediaType/:tmdbId (CAP-12)', () => {
       voteAverage: null,
       voteCount: 0,
     });
+    // Cópia reduzida do banco não pode ficar em cache público.
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('TMDB fora e sem cache → 503 TMDB_UNAVAILABLE', async () => {
