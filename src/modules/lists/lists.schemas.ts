@@ -23,11 +23,17 @@ export const UpdateListBody = z
   })
   .openapi('UpdateListBody');
 
+/** `Title.tmdbId` é `Int` no Postgres. */
+const MAX_TMDB_ID = 2_147_483_647;
+
 export const ListsQuery = PageQuery.extend({
   sort: z.enum(['updatedAt:desc', 'updatedAt:asc']).default('updatedAt:desc'),
   title: z
     .string()
-    .regex(/^(MOVIE|TV):[1-9][0-9]*$/)
+    .regex(/^(MOVIE|TV):[1-9][0-9]{0,9}$/)
+    .refine((value) => Number(value.split(':')[1]) <= MAX_TMDB_ID, {
+      message: 'O id do TMDB excede o máximo aceito.',
+    })
     .optional()
     .openapi({
       description:

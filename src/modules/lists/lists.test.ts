@@ -169,15 +169,24 @@ describe('GET /lists (CAP-7)', () => {
     }
   });
 
-  it.each(['', 'XYZ:1', 'MOVIE:0', 'MOVIE:abc', 'MOVIE:01', 'movie:1', 'MOVIE:', 'MOVIE:1:2'])(
-    'title inválido %j: 400 VALIDATION_FAILED',
-    async (title) => {
-      const agent = await asUser();
-      const res = await agent.get('/api/v1/lists').query({ title });
-      expect(res.status).toBe(400);
-      expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
-    },
-  );
+  it.each([
+    '',
+    'XYZ:1',
+    'MOVIE:0',
+    'MOVIE:abc',
+    'MOVIE:01',
+    'movie:1',
+    'MOVIE:',
+    'MOVIE:1:2',
+    'MOVIE:2147483648',
+    'TV:99999999999',
+    `MOVIE:${'9'.repeat(400)}`,
+  ])('title inválido %j: 400 VALIDATION_FAILED', async (title) => {
+    const agent = await asUser();
+    const res = await agent.get('/api/v1/lists').query({ title });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
 
   it('title preserva paginação, ordenação e total', async () => {
     const agent = await asUser();
