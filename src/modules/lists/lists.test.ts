@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { testApp } from '../../../test/helpers/app.js';
 import { allowedOrigin, asUser } from '../../../test/helpers/as-user.js';
@@ -8,6 +8,8 @@ import { listScenario } from '../../../test/helpers/list-scenario.js';
 import { createInvite, createList, createMembership } from '../../../test/factories/list.js';
 import { createListItem } from '../../../test/factories/item.js';
 import { createUser } from '../../../test/factories/user.js';
+import { fakeTmdb } from '../../../test/helpers/tmdb.js';
+import type { ListSummary } from './lists.schemas.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -15,6 +17,7 @@ describe('sem sessão (401 UNAUTHENTICATED)', () => {
   const id = randomUUID();
   it.each([
     ['get', '/api/v1/lists'],
+    ['get', '/api/v1/lists?title=MOVIE:123'],
     ['post', '/api/v1/lists'],
     ['get', `/api/v1/lists/${id}`],
     ['patch', `/api/v1/lists/${id}`],
@@ -102,6 +105,113 @@ describe('POST /lists (CAP-7)', () => {
 });
 
 describe('GET /lists (CAP-7)', () => {
+  it('localiza o título por tipo, sem expor listas alheias e sem campos extras sem title', async () => {
+    const s = await listScenario();
+    const empty = await createList({ owner: s.editor.user });
+    const television = await createList({ owner: s.editor.user });
+    const foreign = await createList({ owner: s.outsider.user });
+    const movie = await createListItem(s.list, { titleInput: { mediaType: 'MOVIE', tmdbId: 123 } });
+    const tv = await createListItem(television, { titleInput: { mediaType: 'TV', tmdbId: 123 } });
+    await createListItem(foreign, { title: movie.title });
+
+    const plain = await s.editor.get('/api/v1/lists');
+    expect(plain.status).toBe(200);
+    for (const list of plain.body.data as ListSummary[]) {
+      expect(list).not.toHaveProperty('containsTitle');
+      expect(list).not.toHaveProperty('itemId');
+    }
+    for (const [title, presentList, itemId] of [
+      ['MOVIE:123', s.list.id, movie.id],
+      ['TV:123', television.id, tv.id],
+    ]) {
+      const res = await s.editor.get('/api/v1/lists').query({ title, pageSize: 100 });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ total: 3, pageSize: 100 });
+      expect(res.body.data.map((list: ListSummary) => list.id).sort()).toEqual(
+        [s.list.id, empty.id, television.id].sort(),
+      );
+      for (const list of res.body.data as ListSummary[]) {
+        expect(list).toMatchObject({
+          containsTitle: list.id === presentList,
+          itemId: list.id === presentList ? itemId : null,
+        });
+        if (list.itemId !== null) expect(list.itemId).toMatch(UUID);
+      }
+    }
+    const outsiderOnly = await s.outsider.get('/api/v1/lists').query({ title: 'TV:123' });
+    expect(outsiderOnly.body.data).toEqual([
+      expect.objectContaining({ id: foreign.id, containsTitle: false, itemId: null }),
+    ]);
+  });
+
+  it('consulta os itens uma vez por página e não consulta em página vazia ou sem title', async () => {
+    const agent = await asUser();
+    const lists = [];
+    for (let i = 0; i < 3; i++) lists.push(await createList({ owner: agent.user }));
+    const spy = vi.spyOn(prisma.listItem, 'findMany');
+    try {
+      await agent.get('/api/v1/lists?title=MOVIE:123').expect(200);
+      expect(spy).toHaveBeenCalledExactlyOnceWith({
+        where: {
+          listId: { in: expect.arrayContaining(lists.map((list) => list.id)) },
+          title: { mediaType: 'MOVIE', tmdbId: 123 },
+        },
+        select: { id: true, listId: true },
+      });
+      spy.mockClear();
+      const empty = await agent.get('/api/v1/lists?title=MOVIE:123&page=2');
+      expect(empty.status).toBe(200);
+      expect(empty.body).toMatchObject({ data: [], total: 3 });
+      await agent.get('/api/v1/lists').expect(200);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.each(['', 'XYZ:1', 'MOVIE:0', 'MOVIE:abc', 'MOVIE:01', 'movie:1', 'MOVIE:', 'MOVIE:1:2'])(
+    'title inválido %j: 400 VALIDATION_FAILED',
+    async (title) => {
+      const agent = await asUser();
+      const res = await agent.get('/api/v1/lists').query({ title });
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED' });
+    },
+  );
+
+  it('title preserva paginação, ordenação e total', async () => {
+    const agent = await asUser();
+    for (let i = 0; i < 3; i++) await createList({ owner: agent.user });
+    for (const sort of ['updatedAt:asc', 'updatedAt:desc']) {
+      for (const page of [1, 2]) {
+        const query = { sort, page, pageSize: 2 };
+        const plain = await agent.get('/api/v1/lists').query(query);
+        const annotated = await agent.get('/api/v1/lists').query({ ...query, title: 'MOVIE:123' });
+        expect(plain.status).toBe(200);
+        expect(annotated.status).toBe(200);
+        expect({
+          ...annotated.body,
+          data: annotated.body.data.map(({ containsTitle, itemId, ...list }: ListSummary) => {
+            expect(containsTitle).toBe(false);
+            expect(itemId).toBeNull();
+            return list;
+          }),
+        }).toEqual(plain.body);
+      }
+    }
+  });
+
+  it('lista e detalhe continuam disponíveis com o TMDB fora do ar (AC-8.9)', async () => {
+    const s = await listScenario();
+    await createListItem(s.list, { titleInput: { mediaType: 'MOVIE', tmdbId: 1 } });
+    fakeTmdb.setDown(true);
+    await s.member.get('/api/v1/lists').expect(200);
+    const annotated = await s.member.get('/api/v1/lists?title=MOVIE:1').expect(200);
+    expect(annotated.body.data[0].containsTitle).toBe(true);
+    await s.member.get(`/api/v1/lists/${s.list.id}`).expect(200);
+    expect(fakeTmdb.getTitleCalls).toHaveLength(0);
+  });
+
   it('lista só as listas do usuário, com papel, contagem de membros e itemCount real', async () => {
     const s = await listScenario();
     await createList(); // lista alheia

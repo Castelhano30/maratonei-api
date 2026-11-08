@@ -27,7 +27,8 @@ registry.registerPath({
   request: { query: ListsQuery },
   responses: {
     200: {
-      description: 'Página de listas, mais recentemente atualizadas primeiro.',
+      description:
+        'Página de listas, mais recentemente atualizadas primeiro. Com title, inclui containsTitle e itemId em cada lista.',
       content: { 'application/json': { schema: ListSummaryPage } },
     },
     400: invalid,

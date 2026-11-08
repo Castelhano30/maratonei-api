@@ -3,7 +3,7 @@ import { AppError } from '../../http/app-error.js';
 import { pageArgs, toPage, type Page, type PageParams } from '../../http/pagination.js';
 import type { ListRole } from '../../generated/prisma/client.js';
 import { prisma, type Prisma } from '../../lib/prisma.js';
-import { countItemsByStatus } from '../items/index.js';
+import { countItemsByStatus, findItemIdsByTitle } from '../items/index.js';
 import type {
   CreateListBody,
   ListDetail,
@@ -65,7 +65,7 @@ export async function createList(userId: string, body: CreateListBody): Promise<
 
 export async function listListsOf(
   userId: string,
-  params: PageParams & { sort: 'updatedAt:desc' | 'updatedAt:asc' },
+  params: PageParams & { sort: 'updatedAt:desc' | 'updatedAt:asc'; title?: string },
 ): Promise<Page<ListSummary>> {
   const where: Prisma.ListWhereInput = { members: { some: { userId } } };
   const direction = params.sort === 'updatedAt:asc' ? 'asc' : 'desc';
@@ -81,6 +81,16 @@ export async function listListsOf(
     }),
     prisma.list.count({ where }),
   ]);
+  let itemIds: Map<string, string> | undefined;
+  if (params.title !== undefined) {
+    const mediaType = params.title.startsWith('MOVIE:') ? 'MOVIE' : 'TV';
+    const tmdbId = Number(params.title.split(':')[1]);
+    itemIds = await findItemIdsByTitle(
+      rows.map((list) => list.id),
+      mediaType,
+      tmdbId,
+    );
+  }
   const data = rows.map((list) => ({
     id: list.id,
     name: list.name,
@@ -88,6 +98,9 @@ export async function listListsOf(
     role: list.members[0]?.role ?? 'MEMBER',
     memberCount: list._count.members,
     itemCount: list._count.items,
+    ...(itemIds
+      ? { containsTitle: itemIds.has(list.id), itemId: itemIds.get(list.id) ?? null }
+      : {}),
     createdAt: list.createdAt.toISOString(),
     updatedAt: list.updatedAt.toISOString(),
   }));
