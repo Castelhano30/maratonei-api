@@ -1,6 +1,13 @@
 import { AppError } from '../../http/app-error.js';
 import type { Page } from '../../http/pagination.js';
 import type { Title } from '../../generated/prisma/client.js';
+import {
+  clearAllCaches,
+  createCache,
+  DETAIL_TTL_MS,
+  NEGATIVE_TTL_MS,
+  PROVIDERS_TTL_MS,
+} from '../../lib/cache/index.js';
 import { prisma, Prisma } from '../../lib/prisma.js';
 import {
   getTmdb,
@@ -14,110 +21,36 @@ import { SEARCH_PAGE_SIZE, type TitleDetail } from './titles.schemas.js';
 
 /** Idade máxima da linha `Title` antes da atualização preguiçosa. */
 export const TITLE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-/** Cache em memória do detalhe completo (elenco e trailer não persistem). */
-const DETAIL_MEMORY_TTL_MS = 60 * 60 * 1000;
 export const RECOMMENDATIONS_MEMORY_TTL_MS = 60 * 60 * 1000;
-
 /** Cache em memória de uma temporada (episódios não persistem). */
 export const SEASON_MEMORY_TTL_MS = 60 * 60 * 1000;
 /** Cache em memória dos provedores de streaming (não persistem). */
-export const PROVIDERS_MEMORY_TTL_MS = 24 * 60 * 60 * 1000;
+export const PROVIDERS_MEMORY_TTL_MS = PROVIDERS_TTL_MS;
 
-/** Cache negativo: título/temporada que o TMDB disse não existir (404). */
-export const NEGATIVE_TTL_MS = 5 * 60 * 1000;
-/** Acima deste tamanho, cada gravação descarta as entradas vencidas do cache. */
-const CACHE_SWEEP_SIZE = 500;
-/** Teto de entradas por cache em memória. */
-const CACHE_MAX_SIZE = 2000;
-
-type Entry<T> = { at: number; value: T } | { at: number; notFound: AppError };
-type Store<T> = Map<string, Entry<T>>;
-
-const memory: Store<TmdbTitleDetail> = new Map();
-const recommendationsMemory: Store<TmdbSearchPage> = new Map();
-const seasonMemory: Store<TmdbSeasonDetail> = new Map();
-const providersMemory: Store<TmdbProviders> = new Map();
-/** Chamadas ao TMDB em andamento, para que pedidos iguais compartilhem uma só. */
-const inflight = new Map<Store<never>, Map<string, Promise<unknown>>>();
-
-export function clearTitleCache(): void {
-  memory.clear();
-  recommendationsMemory.clear();
-  seasonMemory.clear();
-  providersMemory.clear();
-  inflight.clear();
-}
-
-function isFresh(entry: Entry<unknown>, ttlMs: number): boolean {
-  return Date.now() - entry.at < ('notFound' in entry ? NEGATIVE_TTL_MS : ttlMs);
-}
+export { NEGATIVE_TTL_MS };
 
 /**
- * Valor em cache dentro do TTL ou o resultado de `load`. Pedidos simultâneos à
- * mesma chave compartilham uma única chamada. Só sucesso e 404 (`TITLE_NOT_FOUND`,
- * por 5 min) ficam guardados; qualquer outra falha não é cacheada.
+ * Detalhe completo (elenco e trailer não persistem) e provedores servem a cópia vencida
+ * se o TMDB falhar (rotas públicas, AD-19). Recomendações e temporadas seguem sem isso.
  */
-async function cached<T>(
-  store: Store<T>,
-  key: string,
-  ttlMs: number,
-  load: () => Promise<T>,
-): Promise<T> {
-  const hit = store.get(key);
-  if (hit && isFresh(hit, ttlMs)) {
-    if ('notFound' in hit) throw hit.notFound;
-    return hit.value;
-  }
-  let pending = inflight.get(store as Store<never>);
-  if (!pending) {
-    pending = new Map();
-    inflight.set(store as Store<never>, pending);
-  }
-  const running = pending.get(key) as Promise<T> | undefined;
-  if (running) return running;
+const detailCache = createCache<TmdbTitleDetail>({ ttlMs: DETAIL_TTL_MS, staleIfError: true });
+const recommendationsCache = createCache<TmdbSearchPage>({ ttlMs: RECOMMENDATIONS_MEMORY_TTL_MS });
+const seasonCache = createCache<TmdbSeasonDetail>({ ttlMs: SEASON_MEMORY_TTL_MS });
+const providersCache = createCache<TmdbProviders>({ ttlMs: PROVIDERS_TTL_MS, staleIfError: true });
 
-  const promise = (async () => {
-    try {
-      const value = await load();
-      remember(store, key, ttlMs, { at: Date.now(), value });
-      return value;
-    } catch (error) {
-      if (error instanceof AppError && error.code === 'TITLE_NOT_FOUND') {
-        remember(store, key, ttlMs, { at: Date.now(), notFound: error });
-      }
-      throw error;
-    } finally {
-      pending.delete(key);
-    }
-  })();
-  pending.set(key, promise);
-  return promise;
-}
-
-function remember<T>(store: Store<T>, key: string, ttlMs: number, entry: Entry<T>): void {
-  if (store.size >= CACHE_SWEEP_SIZE) {
-    for (const [k, old] of store) if (!isFresh(old, ttlMs)) store.delete(k);
-  }
-  // Teto duro: sem vencidas suficientes, descarta as mais antigas (ordem de inserção).
-  while (store.size >= CACHE_MAX_SIZE) {
-    const oldest = store.keys().next();
-    if (oldest.done) break;
-    store.delete(oldest.value);
-  }
-  store.delete(key);
-  store.set(key, entry);
+/** Esvazia todos os caches em memória (testes). */
+export function clearTitleCache(): void {
+  clearAllCaches();
 }
 
 /** Episódios de uma temporada;temporada inexistente → 404 `TITLE_NOT_FOUND`. */
 export function getSeason(tmdbId: number, season: number): Promise<TmdbSeasonDetail> {
-  return cached(seasonMemory, `${tmdbId}:${season}`, SEASON_MEMORY_TTL_MS, () =>
-    getTmdb().getSeason(tmdbId, season),
-  );
+  return seasonCache.get(`${tmdbId}:${season}`, () => getTmdb().getSeason(tmdbId, season));
 }
 
 /** Onde assistir no Brasil, com cache de 24 h. */
 export function getProviders(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbProviders> {
-  return cached(providersMemory, `${mediaType}:${tmdbId}`, PROVIDERS_MEMORY_TTL_MS, () =>
+  return providersCache.get(`${mediaType}:${tmdbId}`, () =>
     getTmdb().getProviders(mediaType, tmdbId),
   );
 }
@@ -156,18 +89,13 @@ export async function searchTitles(query: string, page: number): Promise<Page<Ti
 
 /** Filmes populares no Brasil; somente cache em memória, sem persistir títulos. */
 export async function getTitleRecommendations(): Promise<Page<TitleSummaryData>> {
-  const result = await cached(
-    recommendationsMemory,
-    'popular:pt-BR:BR:1',
-    RECOMMENDATIONS_MEMORY_TTL_MS,
-    async () => {
-      try {
-        return await getTmdb().getPopularMovies();
-      } catch {
-        throw new AppError('TMDB_UNAVAILABLE');
-      }
-    },
-  );
+  const result = await recommendationsCache.get('popular:pt-BR:BR:1', async () => {
+    try {
+      return await getTmdb().getPopularMovies();
+    } catch {
+      throw new AppError('TMDB_UNAVAILABLE');
+    }
+  });
   return {
     data: result.results.map(toTitleSummary),
     page: 1,
@@ -178,9 +106,7 @@ export async function getTitleRecommendations(): Promise<Page<TitleSummaryData>>
 
 /** Detalhe do TMDB, com cache em memória e chamadas simultâneas deduplicadas. */
 function fetchDetail(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbTitleDetail> {
-  return cached(memory, `${mediaType}:${tmdbId}`, DETAIL_MEMORY_TTL_MS, () =>
-    getTmdb().getTitle(mediaType, tmdbId),
-  );
+  return detailCache.get(`${mediaType}:${tmdbId}`, () => getTmdb().getTitle(mediaType, tmdbId));
 }
 
 function rowData(detail: TmdbTitleDetail) {
