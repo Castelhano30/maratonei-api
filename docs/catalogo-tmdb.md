@@ -70,6 +70,10 @@ Os cinco ids conferem em `watch/providers/movie?watch_region=BR`: Netflix=8, Ama
 - O detalhe de série tem `number_of_seasons`; o detalhe de filme e o de série têm `production_countries[].iso_3166_1`.
 - `page=501` em `discover` responde 400 (`error`), e o cliente trata isso como indisponibilidade; a API limita `page` a 500.
 
+## 6. Verificação ponta a ponta
+
+Depois de implementar o módulo `catalog`, a API local (porta 4010, `npx tsx src/server.ts`) foi consultada contra o TMDB real em 2026-11-08. Resultado: todas as coleções responderam 200 com `Cache-Control: public, max-age=60, s-maxage=3600, stale-while-revalidate=86400` e sem `Set-Cookie`, em 150 a 500 ms (2,1 s numa requisição fria de `STREAMING`, que faz 1 + 10 chamadas); `TV` com `NOW_PLAYING` deu 400 `VALIDATION_FAILED` com `no-store`; o detalhe de Duna trouxe `voteAverage` 7,8 e 15910 votos sem `productionCountries` nem `numberOfSeasons`; o título inexistente deu 404 `TITLE_NOT_FOUND` com `no-store`. Séries em `RECENT` mostraram `latestSeason` 1 (estreias, como esperado), `STREAMING` trouxe o provedor da lista fixa (Netflix, Prime Video, Disney+, HBO Max) e `TOP_RATED` de filmes trouxe `originCountry` (US) nos primeiros dez. Nenhum `overview` passou de 220 caracteres.
+
 ## Como repetir
 
 O script usado ficou fora do repositório, para não carregar a chave. Para repetir: rodar chamadas equivalentes com `node --env-file=.env` lendo `TMDB_API_KEY`, imprimindo apenas títulos, notas e contagens, **nunca** a URL com `api_key`.
