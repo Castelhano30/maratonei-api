@@ -1,0 +1,18 @@
+# Config-as-code da Railway para o serviço `api`.
+# Referência: https://docs.railway.com/reference/config-as-code
+# Chaves usadas (todas documentadas ali): build.builder, build.buildCommand,
+# deploy.startCommand, deploy.preDeployCommand, deploy.healthcheckPath,
+# deploy.healthcheckTimeout, deploy.restartPolicyType, deploy.restartPolicyMaxRetries.
+
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm install --frozen-lockfile && pnpm db:generate && pnpm build"
+
+[deploy]
+startCommand = "pnpm start"
+# Roda `prisma migrate deploy` antes de cada release; se falhar, o deploy não sobe.
+preDeployCommand = ["pnpm db:deploy"]
+healthcheckPath = "/api/v1/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
