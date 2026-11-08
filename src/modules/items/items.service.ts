@@ -45,6 +45,20 @@ export async function countItemsByStatus(listId: string): Promise<StatusCounts> 
   return counts;
 }
 
+/** Localiza o item de um título em cada lista da página, sem consultar o TMDB. */
+export async function findItemIdsByTitle(
+  listIds: string[],
+  mediaType: 'MOVIE' | 'TV',
+  tmdbId: number,
+): Promise<Map<string, string>> {
+  if (listIds.length === 0) return new Map();
+  const items = await prisma.listItem.findMany({
+    where: { listId: { in: listIds }, title: { mediaType, tmdbId } },
+    select: { id: true, listId: true },
+  });
+  return new Map(items.map((item) => [item.listId, item.id]));
+}
+
 async function statsOf(itemId: string): Promise<RatingStats> {
   return (await ratingStatsByItem([itemId])).get(itemId) ?? NO_RATINGS;
 }

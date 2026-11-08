@@ -25,6 +25,9 @@ interface Doc {
  */
 const LIMITED_BY_MAX_LIST_MEMBERS = new Set(['listProgress', 'listRatings']);
 
+/** Gêneros são uma taxonomia pequena do TMDB, sem paginação. */
+const UNPAGINATED_TAXONOMIES = new Map([['listCatalogGenres', 'GenreList']]);
+
 /** `Page<T>` de página única e fixa (primeira página do TMDB): não aceita `page` na query. */
 const FIXED_FIRST_PAGE = new Set(['getTitleRecommendations']);
 
@@ -63,13 +66,17 @@ describe('paginação de toda coleção GET (NFR de desempenho)', () => {
       collections.push(id);
       const resolved = resolve(doc, schema);
       const isPage = PAGE_FIELDS.every((field) => field in (resolved?.properties ?? {}));
-      if (!isPage && !LIMITED_BY_MAX_LIST_MEMBERS.has(id)) offenders.push(id);
+      if (!isPage && !LIMITED_BY_MAX_LIST_MEMBERS.has(id) && !UNPAGINATED_TAXONOMIES.has(id))
+        offenders.push(id);
+      const taxonomy = UNPAGINATED_TAXONOMIES.get(id);
+      if (taxonomy) expect(schema?.$ref).toBe(`#/components/schemas/${taxonomy}`);
     }
 
     expect(collections.length).toBeGreaterThanOrEqual(5);
     expect(offenders).toEqual([]);
     // A exceção declarada precisa existir de fato (evita lista obsoleta).
     for (const id of LIMITED_BY_MAX_LIST_MEMBERS) expect(collections).toContain(id);
+    for (const id of UNPAGINATED_TAXONOMIES.keys()) expect(collections).toContain(id);
   });
 
   it('as coleções paginadas aceitam page e pageSize na query', async () => {

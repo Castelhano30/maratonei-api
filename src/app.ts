@@ -11,10 +11,12 @@ import {
   type RateLimitOptions,
 } from './http/rate-limit.js';
 import { originCheck } from './http/origin-check.js';
+import { createPublicGuards } from './http/public.js';
 import { rejectNul } from './http/reject-nul.js';
 import { requireJson } from './http/require-json.js';
 import { AUTH_BASE_PATH, createAuthHandler, meRouter } from './modules/auth/index.js';
 import { commentsRouter } from './modules/comments/index.js';
+import { createCatalogRouter } from './modules/catalog/index.js';
 import { healthRouter } from './modules/health/index.js';
 import { invitesRouter, listInviteRouter } from './modules/invites/index.js';
 import { itemsRouter } from './modules/items/index.js';
@@ -22,8 +24,18 @@ import { listsRouter } from './modules/lists/index.js';
 import { membersRouter } from './modules/members/index.js';
 import { progressRouter } from './modules/progress/index.js';
 import { ratingsRouter } from './modules/ratings/index.js';
-import { titlesRouter } from './modules/titles/index.js';
+import { createTitlesPublicRouter, titlesRouter } from './modules/titles/index.js';
 import { createDocsRouter, createOpenApiRouter, DOCS_PATH } from './openapi/openapi.routes.js';
+
+type RateLimitSettings = Pick<
+  Config,
+  | 'NODE_ENV'
+  | 'RATE_LIMIT_GLOBAL_PER_MIN'
+  | 'RATE_LIMIT_TITLES_PER_MIN'
+  | 'RATE_LIMIT_AUTH_PER_MIN'
+  | 'RATE_LIMIT_PUBLIC_PER_MIN'
+  | 'RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN'
+>;
 
 export interface AppOptions {
   config?: Pick<Config, 'ALLOWED_ORIGINS' | 'LOG_LEVEL'>;
@@ -32,17 +44,22 @@ export interface AppOptions {
   rateLimit?: RateLimitOptions;
 }
 
-function defaultRateLimit(): RateLimitOptions {
-  if (defaultConfig.NODE_ENV === 'test') return {};
+/** Limites a partir da config; desligados em `NODE_ENV=test` e quando o valor é 0. */
+export function defaultRateLimit(settings: RateLimitSettings = defaultConfig): RateLimitOptions {
+  if (settings.NODE_ENV === 'test') return {};
   const limiter = (limit: number) =>
     limit > 0 ? { limit, windowMs: RATE_LIMIT_WINDOW_MS } : undefined;
-  const global = limiter(defaultConfig.RATE_LIMIT_GLOBAL_PER_MIN);
-  const titles = limiter(defaultConfig.RATE_LIMIT_TITLES_PER_MIN);
-  const auth = limiter(defaultConfig.RATE_LIMIT_AUTH_PER_MIN);
+  const global = limiter(settings.RATE_LIMIT_GLOBAL_PER_MIN);
+  const titles = limiter(settings.RATE_LIMIT_TITLES_PER_MIN);
+  const auth = limiter(settings.RATE_LIMIT_AUTH_PER_MIN);
+  const publicPerIp = limiter(settings.RATE_LIMIT_PUBLIC_PER_MIN);
+  const publicGlobal = limiter(settings.RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN);
   return {
     ...(global ? { global } : {}),
     ...(titles ? { titles } : {}),
     ...(auth ? { auth } : {}),
+    ...(publicPerIp ? { public: publicPerIp } : {}),
+    ...(publicGlobal ? { publicGlobal } : {}),
   };
 }
 
@@ -51,6 +68,7 @@ export const API_PREFIX = '/api/v1';
 /**
  * A ordem do pipeline é fixa:
  * helmet → pino-http → origin-check → [auth handler] → json → /api/v1 → error handler.
+ * Dentro de /api/v1: health → rotas públicas → limitador global → rotas com sessão.
  */
 export function createApp(options: AppOptions = {}): Express {
   const config = options.config ?? defaultConfig;
@@ -80,6 +98,11 @@ export function createApp(options: AppOptions = {}): Express {
 
   const api = express.Router();
   api.use('/health', healthRouter);
+  // Rotas públicas (só GET, sem sessão): entram antes dos limitadores atuais e passam só pelos
+  // limites públicos (AD-19). O que não casa aqui segue para o restante do pipeline.
+  const publicGuards = createPublicGuards(rateLimit);
+  api.use('/titles', createTitlesPublicRouter(publicGuards));
+  api.use('/catalog', createCatalogRouter(publicGuards));
   if (rateLimit.global) api.use(createLimiter(rateLimit.global));
   api.use('/me', meRouter);
   api.use('/lists', listsRouter);

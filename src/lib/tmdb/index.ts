@@ -4,6 +4,7 @@ import { createHttpTmdbClient } from './client.js';
 import type { TmdbClient } from './types.js';
 
 export { createHttpTmdbClient, DEFAULT_TMDB_BASE_URL } from './client.js';
+export { toPublicRating } from './rating.js';
 export type * from './types.js';
 
 /** Cliente de quando não há `TMDB_API_KEY`: toda chamada vira 503 `TMDB_UNAVAILABLE`. */
@@ -13,6 +14,10 @@ export const unconfiguredTmdbClient: TmdbClient = {
   getTitle: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
   getSeason: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
   getProviders: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
+  getNowPlaying: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
+  discover: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
+  listGenres: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
+  searchByType: () => Promise.reject(new AppError('TMDB_UNAVAILABLE', 'TMDB não configurado.')),
 };
 
 let current: TmdbClient | undefined;

@@ -18,7 +18,6 @@ describe('extras da Fase 5a no OpenAPI', () => {
     [`get ${L}/{itemId}/progress`]: 'listProgress',
     [`put ${L}/{itemId}/progress/me/episodes/{season}/{episode}`]: 'markEpisode',
     [`delete ${L}/{itemId}/progress/me/episodes/{season}/{episode}`]: 'unmarkEpisode',
-    'get /api/v1/titles/{mediaType}/{tmdbId}/providers': 'getTitleProviders',
     'get /api/v1/titles/TV/{tmdbId}/seasons/{season}': 'getTitleSeason',
   };
 
@@ -30,6 +29,16 @@ describe('extras da Fase 5a no OpenAPI', () => {
       expect(operation?.operationId, key).toBe(operationId);
       expect(operation?.responses['401']?.content, key).toHaveProperty('application/problem+json');
     }
+  });
+
+  it('documenta getTitleProviders como rota pública (sem 401, com 429)', async () => {
+    const document = await fetchDocument();
+    const operation = document.paths['/api/v1/titles/{mediaType}/{tmdbId}/providers']?.get;
+    expect(operation?.operationId).toBe('getTitleProviders');
+    expect(Object.keys(operation?.responses ?? {})).toEqual(
+      expect.arrayContaining(['200', '400', '404', '429', '503']),
+    );
+    expect(operation?.responses).not.toHaveProperty('401');
   });
 
   it('publica os formatos de progresso, temporada, provedores e sorteio', async () => {

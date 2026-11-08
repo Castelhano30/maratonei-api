@@ -1,4 +1,4 @@
-import { MediaType, TitleSummary, pageOf } from '../../openapi/common.js';
+import { MediaType, TitleSummary, WatchProvider, pageOf } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
 /** O TMDB só pagina até 500. */
@@ -7,6 +7,7 @@ export const SEARCH_PAGE_SIZE = 20;
 
 export const SearchQuery = z.object({
   q: z.string().trim().min(1).max(100).openapi({ example: 'duna' }),
+  mediaType: MediaType.optional().openapi({ description: 'Restringe a busca a filmes ou séries.' }),
   page: z.coerce.number().int().min(1).max(SEARCH_MAX_PAGE).default(1),
 });
 
@@ -56,6 +57,10 @@ export const TitleDetail = z
       .openapi({ description: 'Séries; `null` em filmes.' }),
     cast: z.array(CastMember).openapi({ description: 'Elenco principal (até 10).' }),
     trailer: Trailer.nullable(),
+    voteAverage: z.number().nullable().openapi({
+      description: 'Nota do TMDB (0 a 10), uma casa; `null` sem votos',
+    }),
+    voteCount: z.number().int().openapi({ description: 'Quantidade de votos no TMDB.' }),
   })
   .openapi('TitleDetail');
 
@@ -74,14 +79,6 @@ export const SeasonDetail = z
   .object({ season: z.number().int().min(0), name: z.string(), episodes: z.array(Episode) })
   .openapi('SeasonDetail');
 
-export const WatchProvider = z
-  .object({
-    providerId: z.number().int(),
-    providerName: z.string(),
-    logoPath: z.string().nullable(),
-  })
-  .openapi('WatchProvider');
-
 export const WatchProviders = z
   .object({
     flatrate: z.array(WatchProvider).openapi({ description: 'Assinatura.' }),
@@ -92,3 +89,5 @@ export const WatchProviders = z
   .openapi('WatchProviders');
 
 export type TitleDetail = z.infer<typeof TitleDetail>;
+
+export { WatchProvider };

@@ -27,6 +27,8 @@ export function toProblem(error: AppError): ProblemBody {
   return body;
 }
 
+/** Todo erro sai com `no-store`: nunca entra em cache de navegador, CDN ou proxy (AD-19). */
 export function sendProblem(res: Response, error: AppError): void {
+  res.setHeader('Cache-Control', 'no-store');
   res.status(error.status).type(PROBLEM_CONTENT_TYPE).json(toProblem(error));
 }

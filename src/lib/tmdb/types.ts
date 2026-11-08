@@ -16,6 +16,38 @@ export interface TmdbSearchPage {
   results: TmdbTitleSummary[];
 }
 
+export interface TmdbGenre {
+  id: number;
+  name: string;
+}
+
+/** Item de listagem do TMDB (discover, now_playing). */
+export interface TmdbCatalogItem {
+  tmdbId: number;
+  mediaType: TmdbMediaType;
+  /** `title` do filme ou `name` da série; `''` se faltar. */
+  title: string;
+  /** De `release_date` ou `first_air_date`. */
+  year: number | null;
+  genreIds: number[];
+  posterPath: string | null;
+  /** Completo, sem truncar; `''` se faltar. */
+  overview: string;
+  /** Valor bruto do TMDB (0 a 10); `null` se ausente. */
+  voteAverage: number | null;
+  /** 0 se ausente. */
+  voteCount: number;
+  /** Séries: `origin_country[0]`; filmes: sempre `null`. */
+  originCountry: string | null;
+}
+
+export interface TmdbCatalogPage {
+  page: number;
+  totalResults: number;
+  totalPages: number;
+  results: TmdbCatalogItem[];
+}
+
 export interface TmdbCastMember {
   name: string;
   character: string | null;
@@ -41,6 +73,12 @@ export interface TmdbTitleDetail extends TmdbTitleSummary {
   seasons: TmdbSeason[] | null;
   cast: TmdbCastMember[];
   trailer: TmdbTrailer | null;
+  voteAverage: number | null;
+  voteCount: number;
+  /** Códigos ISO 3166-1 de `production_countries`. */
+  productionCountries: string[];
+  /** Séries: `number_of_seasons`; filmes: `null`. */
+  numberOfSeasons: number | null;
 }
 
 export interface TmdbEpisode {
@@ -86,4 +124,12 @@ export interface TmdbClient {
   getSeason(tmdbId: number, season: number): Promise<TmdbSeasonDetail>;
   /** Watch providers da região BR. */
   getProviders(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbProviders>;
+  /** Filmes em cartaz na região BR. */
+  getNowPlaying(page: number): Promise<TmdbCatalogPage>;
+  /** `params` traz `page`, `sort_by`, `region`, `with_genres` etc. */
+  discover(mediaType: TmdbMediaType, params: Record<string, string>): Promise<TmdbCatalogPage>;
+  /** Gêneros do tipo, em pt-BR. */
+  listGenres(mediaType: TmdbMediaType): Promise<TmdbGenre[]>;
+  /** Busca restrita a um tipo. */
+  searchByType(mediaType: TmdbMediaType, query: string, page: number): Promise<TmdbSearchPage>;
 }

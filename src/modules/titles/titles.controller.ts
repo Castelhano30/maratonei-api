@@ -9,7 +9,7 @@ export const recommendations: RequestHandler = async (_req, res) => {
 
 export const search: RequestHandler = async (req, res) => {
   const { query } = validate(req, { query: SearchQuery });
-  res.json(await service.searchTitles(query.q, query.page));
+  res.json(await service.searchTitles(query.q, query.page, query.mediaType));
 };
 
 export const getSeason: RequestHandler = async (req, res) => {
@@ -24,5 +24,8 @@ export const getProviders: RequestHandler = async (req, res) => {
 
 export const getTitle: RequestHandler = async (req, res) => {
   const { params } = validate(req, { params: TitleParams });
-  res.json(await service.getTitleDetail(params.mediaType, params.tmdbId));
+  const { detail, degraded } = await service.getTitleDetailResult(params.mediaType, params.tmdbId);
+  // A cópia reduzida do banco não pode ficar em cache de CDN depois que o TMDB voltar.
+  if (degraded) res.setHeader('Cache-Control', 'no-store');
+  res.json(detail);
 };

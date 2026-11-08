@@ -23,8 +23,23 @@ export const UpdateListBody = z
   })
   .openapi('UpdateListBody');
 
+/** `Title.tmdbId` é `Int` no Postgres. */
+const MAX_TMDB_ID = 2_147_483_647;
+
 export const ListsQuery = PageQuery.extend({
   sort: z.enum(['updatedAt:desc', 'updatedAt:asc']).default('updatedAt:desc'),
+  title: z
+    .string()
+    .regex(/^(MOVIE|TV):[1-9][0-9]{0,9}$/)
+    .refine((value) => Number(value.split(':')[1]) <= MAX_TMDB_ID, {
+      message: 'O id do TMDB excede o máximo aceito.',
+    })
+    .optional()
+    .openapi({
+      description:
+        'Título a localizar nas listas, no formato MOVIE:123 ou TV:123, sem zeros à esquerda.',
+      example: 'MOVIE:438631',
+    }),
 });
 
 export const ListSummary = z
@@ -35,6 +50,13 @@ export const ListSummary = z
     role: ListRole,
     memberCount: z.number().int().min(1),
     itemCount: z.number().int().min(0).openapi({ description: 'Total de títulos na lista.' }),
+    containsTitle: z.boolean().optional().openapi({
+      description: 'Indica se a lista contém o título consultado; omitido sem o parâmetro title.',
+    }),
+    itemId: z.uuid().nullable().optional().openapi({
+      description:
+        'Id do item do título consultado, ou null se ausente; omitido sem o parâmetro title.',
+    }),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

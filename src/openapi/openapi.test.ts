@@ -177,8 +177,6 @@ describe('listas, membros e convites no OpenAPI', () => {
 
 describe('títulos e itens no OpenAPI (Fase 3a)', () => {
   const EXPECTED: Record<string, string> = {
-    'get /api/v1/titles/search': 'searchTitles',
-    'get /api/v1/titles/{mediaType}/{tmdbId}': 'getTitle',
     'get /api/v1/lists/{listId}/items': 'listItems',
     'post /api/v1/lists/{listId}/items': 'addItem',
     'get /api/v1/lists/{listId}/items/{itemId}': 'getItem',
@@ -201,6 +199,13 @@ describe('títulos e itens no OpenAPI (Fase 3a)', () => {
     }
   });
 
+  it('documenta searchTitles e getTitle como rotas públicas (sem 401)', async () => {
+    const document = await fetchDocument();
+    const paths = document.paths as Record<string, Record<string, Operation>>;
+    expect(paths['/api/v1/titles/search']?.get?.operationId).toBe('searchTitles');
+    expect(paths['/api/v1/titles/{mediaType}/{tmdbId}']?.get?.operationId).toBe('getTitle');
+  });
+
   it('documenta os erros de domínio e os filtros de listItems', async () => {
     const document = await fetchDocument();
     const paths = document.paths as Record<
@@ -209,8 +214,9 @@ describe('títulos e itens no OpenAPI (Fase 3a)', () => {
     >;
 
     expect(Object.keys(paths['/api/v1/titles/search']?.get?.responses ?? {})).toEqual(
-      expect.arrayContaining(['200', '400', '401', '503']),
+      expect.arrayContaining(['200', '400', '429', '503']),
     );
+    expect(paths['/api/v1/titles/search']?.get?.responses).not.toHaveProperty('401');
     expect(Object.keys(paths['/api/v1/lists/{listId}/items']?.post?.responses ?? {})).toEqual(
       expect.arrayContaining(['201', '403', '404', '409', '503']),
     );

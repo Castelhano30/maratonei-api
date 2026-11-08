@@ -7,11 +7,51 @@ import { captureLogs } from '../../../test/helpers/log-capture.js';
 import { testApp } from '../../../test/helpers/app.js';
 import { READINESS_TIMEOUT_MS } from './health.service.js';
 
+const originalLogClientIpDebug = config.LOG_CLIENT_IP_DEBUG;
+
 afterEach(() => {
+  config.LOG_CLIENT_IP_DEBUG = originalLogClientIpDebug;
   vi.restoreAllMocks();
 });
 
 describe('GET /api/v1/health (liveness)', () => {
+  it('não registra client-ip-debug com a flag desligada', async () => {
+    config.LOG_CLIENT_IP_DEBUG = false;
+    const { logger, lines } = captureLogs();
+    const app = createApp({ config, logger });
+
+    const res = await request(app)
+      .get('/api/v1/health')
+      .set('X-Forwarded-For', '203.0.113.7, 192.0.2.1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ok' });
+    expect(lines.filter((line) => line.msg === 'client-ip-debug')).toEqual([]);
+  });
+
+  it('registra uma linha com os três campos de IP com a flag ligada', async () => {
+    config.LOG_CLIENT_IP_DEBUG = true;
+    const { logger, lines } = captureLogs();
+    const app = createApp({ config, logger });
+    app.set('trust proxy', 2);
+
+    const res = await request(app)
+      .get('/api/v1/health')
+      .set('X-Forwarded-For', '203.0.113.7, 192.0.2.1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ok' });
+    const debugLines = lines.filter((line) => line.msg === 'client-ip-debug');
+    expect(debugLines).toHaveLength(1);
+    expect(debugLines[0]).toMatchObject({
+      level: 30,
+      requestId: res.headers['x-request-id'],
+      ip: '203.0.113.7',
+      ips: ['203.0.113.7', '192.0.2.1'],
+      xForwardedFor: '203.0.113.7, 192.0.2.1',
+    });
+  });
+
   it('responde 200 {status: "ok"}', async () => {
     const res = await request(testApp()).get('/api/v1/health');
 

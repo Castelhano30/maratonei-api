@@ -7,12 +7,13 @@ contrato OpenAPI gerado dos schemas Zod.
 
 ```mermaid
 flowchart LR
-  Web["maratonei-web<br/>Next.js (Vercel)"] -- "rewrite /api/*" --> API
+  Web["maratonei-web<br/>Next.js (Railway)"] -- "rewrite /api/v1/* e /docs" --> API
   Mobile["app mobile<br/>(futuro)"] -.-> API
   subgraph API["maratonei-api (Express 5)"]
     direction TB
     MW["helmet · pino-http · origin-check"] --> Auth["Better Auth<br/>/api/v1/auth/*"]
-    MW --> Rate["rate limit (global e /titles)"] --> Mods["módulos: lists · members · invites<br/>items · ratings · comments · progress · titles"]
+    MW --> Public["rotas públicas (GET)<br/>catalog · titles · limite público"] --> Mods
+    MW --> Rate["rate limit (global e /titles)"] --> Mods["módulos: lists · members · invites<br/>items · ratings · comments · progress<br/>titles · catalog"]
     Mods --> Err["error handler (problem+json)"]
   end
   Mods --> DB[("PostgreSQL 17<br/>Prisma 7 + adapter-pg")]
@@ -29,16 +30,41 @@ Cada módulo em `src/modules/<nome>` tem routes, controller, service e schemas Z
 - **Erros:** sempre `application/problem+json` com `code` de um registro único (`src/http/error-codes.ts`); o cliente trata `code` como conjunto aberto.
 - **Autenticação:** Better Auth com cookie httpOnly; isolada em `modules/auth` para aceitar tokens no mobile depois.
 - **Autorização no servidor:** `requireListRole` em toda rota de lista; não membro recebe 404 (não revela a existência).
-- **TMDB:** cópia do título em `Title` (7 dias); temporadas, detalhe e provedores só em memória, com chamadas simultâneas
-  deduplicadas e cache negativo de 5 min para 404. Falha do TMDB não derruba a lista (serve a linha em cache).
+- **TMDB:** cópia do título em `Title` (7 dias); catálogo, gêneros, busca, temporadas, detalhe e provedores só em memória
+  (`src/lib/cache`), com chamadas simultâneas deduplicadas, cache negativo de 5 min para 404 e, nas rotas públicas, cópia
+  vencida servida por até 24 h se o TMDB falhar (stale-if-error). Falha do TMDB não derruba a lista (serve a linha em cache).
+- **Conteúdo público:** `catalog/*` e `titles/search`, `titles/{mediaType}/{tmdbId}` e `…/providers` respondem sem sessão
+  (só `GET`; nunca leem `req.user`, nunca escrevem no banco nem gravam `Title`). Veja "Rotas públicas, cache e limites".
 - **Banco:** Prisma 7 com adapter-pg; pool com `connectionTimeoutMillis` e `statement_timeout` configuráveis; banco fora vira 503 `DB_UNAVAILABLE`.
 - **Paginação:** toda coleção é `Page<T>`, exceto as limitadas por `MAX_LIST_MEMBERS` (progresso e notas), conferido por teste sobre o OpenAPI.
+
+## Rotas públicas, cache e limites
+
+| Rota                                                                                        | Cache da API |
+| ------------------------------------------------------------------------------------------- | ------------ |
+| `GET /catalog/{mediaType}?collection=&genreId=&sort=&page=` (vitrines, rankings, catálogos) | 6 h          |
+| `GET /catalog/genres?mediaType=`                                                            | 24 h         |
+| `GET /titles/search?q=&mediaType=&page=`                                                    | 10 min       |
+| `GET /titles/{mediaType}/{tmdbId}` (com `voteAverage` e `voteCount`)                        | 1 h          |
+| `GET /titles/{mediaType}/{tmdbId}/providers`                                                | 24 h         |
+
+- **Resposta HTTP:** `200` público com `Cache-Control: public, max-age=60, s-maxage=3600, stale-while-revalidate=86400`;
+  qualquer erro (4xx, 5xx, 429) com `no-store`; nenhuma rota pública envia `Set-Cookie`.
+- **Falha do TMDB:** entrada vencida há menos de 24 h é servida; sem cópia, `503 TMDB_UNAVAILABLE`. Cache negativo (404) de 5 min.
+- **Limites próprios:** as rotas públicas não contam nos limitadores globais (300/min e `/titles` 60/min); passam só por
+  `RATE_LIMIT_PUBLIC_PER_MIN` (120/min por IP) e `RATE_LIMIT_PUBLIC_GLOBAL_PER_MIN` (teto único de 600/min).
+- **Rankings e pisos de votos:** `TOP_RATED` exclui títulos com poucos votos: `CATALOG_MIN_VOTES_MOVIE` (3000) e
+  `CATALOG_MIN_VOTES_TV` (2000), calibrados no spike de [docs/catalogo-tmdb.md](docs/catalogo-tmdb.md). A ordem por nota usa o
+  mesmo piso em `ALL` e `STREAMING` (25 votos em `NOW_PLAYING` e `RECENT`), e toda ordem por lançamento exige 10 votos.
+- **Listas e título:** `GET /lists?title=MOVIE:123` (com sessão) devolve `containsTitle` e `itemId` em cada lista.
+- `titles/recommendations` está `deprecated` (substituída pelas vitrines do catálogo; sai só na v2).
 
 ## Limites e observabilidade
 
 - **Rate limit por IP** (`express-rate-limit`, memória): `RATE_LIMIT_GLOBAL_PER_MIN` (padrão 300, exceto `/health`) e
   `RATE_LIMIT_TITLES_PER_MIN` (padrão 60, rotas que tocam o TMDB). Excesso → 429 `RATE_LIMITED` com `Retry-After`.
-  `0` desliga; com `NODE_ENV=test` ficam desligados. Atrás de proxy defina `TRUST_PROXY` (saltos confiáveis, 1 no Render)
+  `0` desliga; com `NODE_ENV=test` ficam desligados. Atrás de proxy defina `TRUST_PROXY` (saltos confiáveis; 2 no primeiro
+  deploy na Railway, a confirmar pela medição de [docs/producao-medicoes.md](docs/producao-medicoes.md) com `LOG_CLIENT_IP_DEBUG`)
   para o IP real; com mais de uma instância o contador em memória não é compartilhado. Login, cadastro e reset têm o limite próprio do Better Auth.
 - **Logs:** pino estruturado com `requestId`; cookies, tokens de convite/reset e `code`/`state` do OAuth são mascarados.
 - **Liveness/readiness:** `GET /api/v1/health` (para o monitor externo) e `/health/ready` (checa o banco).
@@ -91,8 +117,11 @@ Entre com `e2e@maratonei.local` (senha do seed em `.env.example`). O `WEB_ORIGIN
 
 ## Pendências de produção
 
-Dependem de deploy real e não foram tentadas: Render, Neon (pooler e `statement_timeout`), Resend e domínio, Vercel (rewrite, `Origin` e IP real),
-monitor externo na liveness, restore do backup a partir do banco de produção, p95 em produção e prints do README. Detalhes em `deferred-work.md`.
+Dependem de deploy real e não foram tentadas: Railway (`api` na rede privada e `web` com domínio público), Neon (pooler e
+`statement_timeout`), Resend e domínio, medições de `TRUST_PROXY`, `Origin`, login pelo rewrite e balde do SSR, monitor externo
+na liveness, restore do backup a partir do banco de produção, p95 em produção e prints do README. O roteiro está em
+[docs/deploy-railway.md](docs/deploy-railway.md) e o modelo das medições (vazio) em [docs/producao-medicoes.md](docs/producao-medicoes.md).
+Detalhes históricos em `deferred-work.md`.
 
 ## Pré-requisitos
 
