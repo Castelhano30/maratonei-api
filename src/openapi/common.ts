@@ -12,8 +12,8 @@ import { registry, z } from './registry.js';
 // Enums: valores UPPER idênticos no banco, no JSON, na query e no path.
 export const MediaType = registry.register('MediaType', z.enum(['MOVIE', 'TV']));
 
-// Mesmo componente público de titles, sem dependência de seus schemas internos.
-const WatchProvider = z
+/** Provedor de streaming (componente nomeado único; `titles` e `catalog` o reutilizam). */
+export const WatchProvider = z
   .object({
     providerId: z.number().int(),
     providerName: z.string(),
@@ -34,7 +34,7 @@ export const CatalogCard = registry.register(
     voteAverage: z.number().nullable(),
     voteCount: z.number().int(),
     originCountry: z.string().nullable(),
-    provider: WatchProvider.nullable(),
+    provider: z.union([WatchProvider, z.null()]),
     latestSeason: z.number().int().nullable(),
   }),
 );

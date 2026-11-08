@@ -83,6 +83,15 @@ describe('contrato OpenAPI da Fase 7a (AC-8.10)', () => {
     expect(components.schemas.TitleDetail?.properties).toHaveProperty('voteCount');
   });
 
+  it('WatchProvider é um componente único e não-nulo; só CatalogCard.provider aceita nulo', async () => {
+    const { components } = await loadDocument();
+    const schemas = components.schemas as Record<string, Record<string, unknown>>;
+    expect(schemas.WatchProvider?.nullable).toBeUndefined();
+    expect(JSON.stringify(schemas.CatalogCard?.properties)).toContain('"nullable":true');
+    const provider = (schemas.CatalogCard?.properties as Record<string, unknown>).provider;
+    expect(JSON.stringify(provider)).toContain('#/components/schemas/WatchProvider');
+  });
+
   it('getTitleRecommendations está deprecated e as demais rotas de titles não', async () => {
     const { paths } = await loadDocument();
     expect(paths['/api/v1/titles/recommendations']?.get?.deprecated).toBe(true);

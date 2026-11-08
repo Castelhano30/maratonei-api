@@ -1,4 +1,4 @@
-import { MediaType, TitleSummary, pageOf } from '../../openapi/common.js';
+import { MediaType, TitleSummary, WatchProvider, pageOf } from '../../openapi/common.js';
 import { z } from '../../openapi/registry.js';
 
 /** O TMDB só pagina até 500. */
@@ -79,14 +79,6 @@ export const SeasonDetail = z
   .object({ season: z.number().int().min(0), name: z.string(), episodes: z.array(Episode) })
   .openapi('SeasonDetail');
 
-export const WatchProvider = z
-  .object({
-    providerId: z.number().int(),
-    providerName: z.string(),
-    logoPath: z.string().nullable(),
-  })
-  .openapi('WatchProvider');
-
 export const WatchProviders = z
   .object({
     flatrate: z.array(WatchProvider).openapi({ description: 'Assinatura.' }),
@@ -97,3 +89,5 @@ export const WatchProviders = z
   .openapi('WatchProviders');
 
 export type TitleDetail = z.infer<typeof TitleDetail>;
+
+export { WatchProvider };
